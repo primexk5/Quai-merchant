@@ -1,0 +1,25 @@
+{
+  "name": "pay-with-quai-contracts",
+  "version": "0.1.0",
+  "description": "On-chain payment router for the Pay with Quai merchant checkout system (Quai Network).",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network cyprus1",
+    "demo:testnet": "hardhat run scripts/payDemo.js --network cyprus1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "5.0.2",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.0"
+  },
+  "optionalDependencies": {
+    "@quai/hardhat-deploy-metadata": "*",
+    "quais": "*"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts-upgradeable": "5.0.2"
+  }
+}
