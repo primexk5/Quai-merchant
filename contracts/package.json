@@ -12,14 +12,12 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/contracts": "5.0.2",
+    "@openzeppelin/contracts-upgradeable": "5.0.2",
     "dotenv": "^16.4.5",
     "hardhat": "^2.22.0"
   },
   "optionalDependencies": {
     "@quai/hardhat-deploy-metadata": "*",
     "quais": "*"
-  },
-  "dependencies": {
-    "@openzeppelin/contracts-upgradeable": "5.0.2"
   }
 }

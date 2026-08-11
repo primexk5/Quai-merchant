@@ -12,9 +12,16 @@ transaction, keeping the attack surface minimal.
 
 | Contract | Purpose |
 | --- | --- |
-| `PayWithQuai.sol` | Payment router: `registerOrder` / `cancelOrder`, `payOrder` (ERC-20), `payOrderNative` (QUAI), token allowlist + fee + pause admin, `rescueTokens` sweep, two-step ownership. |
+| `PayWithQuai.sol` | UUPS-upgradeable payment router: `registerOrder` / `cancelOrder`, `payOrder` (ERC-20), `payOrderNative` (QUAI), token allowlist + fee + pause admin, `rescueTokens` sweep, two-step ownership, owner-gated upgrades. |
+| `governance/Imports.sol` | Compile-only: pulls OZ `ERC1967Proxy` (the proxy that fronts the router) and `TimelockController` (the upgrade-governance owner) into local artifacts for the deploy script. |
 | `MockStablecoin.sol` | 6-decimal test ERC-20 (`mUSDQ`) with an open `mint` faucet — testing/testnet only. |
 | `mocks/Reentrant*.sol` | Test-only attackers proving the reentrancy guard holds. |
+| `mocks/PayWithQuaiV2Mock.sol` | Test-only upgrade target proving a UUPS upgrade preserves all storage. |
+
+The router is deployed as a **UUPS proxy**: an `ERC1967Proxy` holds all state and delegates logic
+to a `PayWithQuai` implementation. Everyone (merchants, customers, the relayer) interacts with the
+**proxy address**; the implementation can be swapped later to add features without migrating state.
+See [Upgradeability & governance](#upgradeability--governance).
 
 ### Payment flow
 
@@ -55,6 +62,35 @@ from the webhook payload (§5.2) is an off-chain mapping from this address.
 > reorgs. The relayer should wait for N confirmations (and optionally re-check `isSettled` on-chain)
 > before POSTing `payment.confirmed` to the merchant — otherwise a reorg produces a false "paid".
 
+## Upgradeability & governance
+
+The router is a **UUPS (ERC-1967) upgradeable** contract. Two addresses matter:
+
+- **Proxy** — holds all state, never changes. This is the address in `deployments/<network>.json`
+  (`payWithQuai`) that merchants, customers, and the relayer use.
+- **Implementation** — the logic. Swappable via `upgradeToAndCall`, gated by `_authorizeUpgrade`
+  (owner-only). Recorded as `payWithQuaiImpl`.
+
+**Storage safety.** All mutable state lives in an ERC-7201 *namespaced* struct (`paywithquai.main`),
+and each base module (Ownable2Step, Pausable, ReentrancyGuard) uses its own namespaced slot. This is
+what makes upgrades safe. The rules for any future version:
+
+- **Never remove or reorder** fields in `MainStorage` — only **append** new ones.
+- New modules (escrow, refunds, subscriptions…) should declare their **own** ERC-7201 namespace,
+  exactly like `mocks/PayWithQuaiV2Mock.sol` does — then they can never collide with existing state.
+- Use a `reinitializer(n)` for any state a new version introduces (see `initializeV2`).
+
+**Governance.** The owner can pause, set the fee (≤ 5%), manage the allowlist, and **upgrade the
+logic** — so in production the owner must not be a hot EOA. Set `MULTISIG_ADDR` and the deploy script
+deploys an OZ `TimelockController` (proposer/executor = your multisig, e.g. a Gnosis Safe) and
+transfers ownership to it. An upgrade then flows: multisig **schedules** `upgradeToAndCall` on the
+proxy through the Timelock → waits `TIMELOCK_MIN_DELAY` (default 48h) → **executes**. The delay is a
+public warning window: anyone watching can exit before a pending upgrade lands.
+
+> Because the router uses `Ownable2Step`, transferring ownership to the Timelock is a two-step
+> hand-off — the Timelock must `acceptOwnership()`. The deploy script prints the exact call to
+> schedule from the multisig to complete it.
+
 ## Quickstart
 
 ```bash
@@ -68,13 +104,19 @@ npx hardhat test        # full suite on the in-process EVM — no node or funds 
 
 ```bash
 cp .env.dist .env       # fill in CYPRUS1_PK (fund it from the Quai faucet); Orchard RPC is preset
-npm run deploy:testnet  # deploys MockStablecoin + PayWithQuai, writes deployments/cyprus1.json
-npm run demo:testnet    # runs the full register → approve → pay → event loop on-chain
+npm run deploy:testnet  # deploys MockStablecoin + impl + proxy (+ Timelock if MULTISIG_ADDR set)
+npm run demo:testnet    # runs the full register → approve → pay → event loop against the proxy
 ```
 
-- Solidity **0.8.20**, `evmVersion: london` (Quai EVM supports ≤ 0.8.20).
-- The deploy script allowlists native QUAI + the mock stablecoin automatically. On mainnet,
-  set `STABLECOIN_ADDR` in `.env` to allowlist a real stablecoin (or call `setTokenAccepted` later).
+- Solidity **0.8.20**, `evmVersion: london` (Quai EVM supports ≤ 0.8.20). OpenZeppelin is pinned to
+  **5.0.2** — the last line whose proxy/UUPS files still allow the `0.8.20` pragma (5.1+ requires
+  ≥ 0.8.22 / PUSH0). **Do not bump OZ** without re-checking this, or the build breaks on Quai.
+- The deploy script deploys the implementation, an `ERC1967Proxy` (initialized with the deployer as
+  owner so it can allowlist assets), then allowlists native QUAI + the stablecoin. Everyone
+  interacts with the **proxy** address written to `deployments/<network>.json`.
+- Set `MULTISIG_ADDR` to also deploy a `TimelockController` and hand off ownership (see
+  [Upgradeability & governance](#upgradeability--governance)). On mainnet, set `STABLECOIN_ADDR` to
+  a real stablecoin (or call `setTokenAccepted` later).
 - Deploys use the **quais** SDK (Hardhat's ethers cannot talk to Quai). The `ContractFactory`
   takes an IPFS metadata CID (via `@quai/hardhat-deploy-metadata`) so Quaiscan can verify source.
 - Networks: Orchard testnet (`CHAIN_ID=15000`, `https://orchard.rpc.quai.network`), mainnet
@@ -96,12 +138,15 @@ npm run demo:testnet    # runs the full register → approve → pay → event l
 - **Stray funds are recoverable.** The router never holds funds during normal operation, but a
   stray ERC-20 `transfer` (or QUAI force-sent via `selfdestruct`) can land on it. The owner can
   `rescueTokens(token, to, amount)` to recover them (`token = address(0)` sweeps native QUAI).
-- **Move ownership to a multisig.** The owner can pause payments and set the fee (≤ 5%); don't
-  leave a hot EOA as owner in production. Ownership transfer is two-step (`Ownable2Step`).
-- **Payout wallet** currently equals the registering wallet. A v2 merchant registry can
-  separate a hot "controller" key from a cold payout address.
-- **Escrow / refunds / split payments** are the doc's stretch (v2) features — this router is
-  the recommended hackathon core.
+- **Move ownership to a timelock+multisig.** The owner can pause payments, set the fee (≤ 5%), and
+  **upgrade the logic**; don't leave a hot EOA as owner in production. Set `MULTISIG_ADDR` at deploy
+  to wire the Timelock (see [Upgradeability & governance](#upgradeability--governance)). Ownership
+  transfer is two-step (`Ownable2Step`).
+- **Payout wallet** currently equals the registering wallet. A v2 upgrade can add a merchant
+  registry (its own ERC-7201 namespace) separating a hot "controller" key from a cold payout
+  address — no redeploy or state migration needed.
+- **Escrow / refunds / split payments / subscriptions** are the doc's stretch (v2) features. With
+  UUPS these ship as future upgrades/modules on the same proxy — this router is the v1 core.
 - Native orders require an **exact** `msg.value` — correct for a fixed on-chain price. Any
   fiat→token slippage is resolved off-chain at quote time, before the amount is registered.
 - Assumes standard (non-fee-on-transfer, non-rebasing) ERC-20 stablecoins. With a fee-on-transfer

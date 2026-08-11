@@ -11,18 +11,29 @@ describe('PayWithQuai', function () {
   const FEE_BPS = 50n; // 0.5%
   const AMOUNT = usdq(25); // 25.00 mUSDQ
 
-  // Deploy the router, fund a payer, and allowlist both the stablecoin and native QUAI.
+  // Deploy the router behind a UUPS proxy, fund a payer, and allowlist both the stablecoin and
+  // native QUAI. Mirrors the production deploy path (impl -> ERC1967Proxy(initialize)).
   async function setup(feeBps) {
     const [owner, merchant, payer, feeRecipient, other] = await ethers.getSigners();
 
     const token = await ethers.deployContract('MockStablecoin');
     await token.mint(payer.address, usdq(1000));
 
-    const pay = await ethers.deployContract('PayWithQuai', [feeRecipient.address, feeBps]);
+    const pay = await deployProxy([feeRecipient.address, feeBps, owner.address]);
     await pay.setTokenAccepted(await token.getAddress(), true);
     await pay.setTokenAccepted(ethers.ZeroAddress, true); // enable native QUAI
 
     return { owner, merchant, payer, feeRecipient, other, token, pay };
+  }
+
+  // Deploy the PayWithQuai implementation, wrap it in an ERC1967Proxy initialized with `initArgs`,
+  // and return a PayWithQuai-typed handle bound to the proxy address.
+  async function deployProxy(initArgs) {
+    const Impl = await ethers.getContractFactory('PayWithQuai');
+    const impl = await Impl.deploy();
+    const initData = Impl.interface.encodeFunctionData('initialize', initArgs);
+    const proxy = await ethers.deployContract('ERC1967Proxy', [await impl.getAddress(), initData]);
+    return Impl.attach(await proxy.getAddress());
   }
 
   const deployFixture = () => setup(FEE_BPS);
@@ -42,21 +53,17 @@ describe('PayWithQuai', function () {
     });
 
     it('rejects a fee above MAX_FEE_BPS', async function () {
-      const { pay, feeRecipient } = await loadFixture(deployFixture);
-      const Factory = await ethers.getContractFactory('PayWithQuai');
-      await expect(Factory.deploy(feeRecipient.address, 501)).to.be.revertedWithCustomError(
-        pay,
-        'FeeTooHigh',
-      );
+      const { pay, feeRecipient, owner } = await loadFixture(deployFixture);
+      await expect(
+        deployProxy([feeRecipient.address, 501, owner.address]),
+      ).to.be.revertedWithCustomError(pay, 'FeeTooHigh');
     });
 
     it('rejects a zero fee recipient', async function () {
-      const { pay } = await loadFixture(deployFixture);
-      const Factory = await ethers.getContractFactory('PayWithQuai');
-      await expect(Factory.deploy(ethers.ZeroAddress, 0)).to.be.revertedWithCustomError(
-        pay,
-        'ZeroFeeRecipient',
-      );
+      const { pay, owner } = await loadFixture(deployFixture);
+      await expect(
+        deployProxy([ethers.ZeroAddress, 0, owner.address]),
+      ).to.be.revertedWithCustomError(pay, 'ZeroFeeRecipient');
     });
   });
 
@@ -506,6 +513,79 @@ describe('PayWithQuai', function () {
       await expect(
         pay.connect(payer).payOrderNative(await evil.getAddress(), oid('ord_re2'), { value: AMOUNT }),
       ).to.be.revertedWithCustomError(pay, 'NativeTransferFailed');
+    });
+  });
+
+  describe('upgradeability (UUPS)', function () {
+    it('sets the explicit owner passed to initialize', async function () {
+      const { pay, owner } = await loadFixture(deployFixture);
+      expect(await pay.owner()).to.equal(owner.address);
+    });
+
+    it('cannot be initialized twice', async function () {
+      const { pay, owner, feeRecipient } = await loadFixture(deployFixture);
+      await expect(
+        pay.initialize(feeRecipient.address, 0, owner.address),
+      ).to.be.revertedWithCustomError(pay, 'InvalidInitialization');
+    });
+
+    it('locks the implementation so it cannot be initialized directly', async function () {
+      const { owner, feeRecipient } = await loadFixture(deployFixture);
+      const impl = await ethers.deployContract('PayWithQuai');
+      await expect(
+        impl.initialize(feeRecipient.address, 0, owner.address),
+      ).to.be.revertedWithCustomError(impl, 'InvalidInitialization');
+    });
+
+    it('rejects an upgrade from a non-owner', async function () {
+      const { pay, other } = await loadFixture(deployFixture);
+      const v2 = await ethers.deployContract('PayWithQuaiV2Mock');
+      await expect(
+        pay.connect(other).upgradeToAndCall(await v2.getAddress(), '0x'),
+      ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+    });
+
+    it('lets the owner upgrade, preserving all existing state', async function () {
+      const { pay, owner, merchant, payer, feeRecipient, token } = await loadFixture(deployFixture);
+      // Establish state under v1: an unpaid order + a settled order.
+      await pay.connect(merchant).registerOrder(oid('ord_keep'), token, AMOUNT, NO_EXPIRY);
+      await pay.connect(merchant).registerOrder(oid('ord_paid'), token, AMOUNT, NO_EXPIRY);
+      await token.connect(payer).approve(pay, AMOUNT);
+      await pay.connect(payer).payOrder(merchant.address, oid('ord_paid'));
+
+      // Upgrade to V2 and run its re-initializer in the same tx.
+      const v2 = await ethers.deployContract('PayWithQuaiV2Mock');
+      const initV2 = v2.interface.encodeFunctionData('initializeV2', ['hello-v2']);
+      await pay.connect(owner).upgradeToAndCall(await v2.getAddress(), initV2);
+
+      const upgraded = v2.attach(await pay.getAddress());
+      // New logic is live...
+      expect(await upgraded.version()).to.equal('v2');
+      expect(await upgraded.note()).to.equal('hello-v2');
+      // ...and every piece of v1 state survived untouched.
+      expect(await upgraded.owner()).to.equal(owner.address);
+      expect(await upgraded.feeRecipient()).to.equal(feeRecipient.address);
+      expect(await upgraded.feeBps()).to.equal(FEE_BPS);
+      expect(await upgraded.isTokenAccepted(await token.getAddress())).to.equal(true);
+      expect(await upgraded.isSettled(merchant.address, oid('ord_paid'))).to.equal(true);
+      const kept = await upgraded.getOrder(merchant.address, oid('ord_keep'));
+      expect(kept.exists).to.equal(true);
+      expect(kept.settled).to.equal(false);
+      expect(kept.amount).to.equal(AMOUNT);
+    });
+
+    it('still processes payments after an upgrade', async function () {
+      const { pay, owner, merchant, payer, feeRecipient, token } = await loadFixture(deployFixture);
+      const v2 = await ethers.deployContract('PayWithQuaiV2Mock');
+      await pay.connect(owner).upgradeToAndCall(await v2.getAddress(), '0x');
+      const upgraded = v2.attach(await pay.getAddress());
+
+      await upgraded.connect(merchant).registerOrder(oid('ord_after'), token, AMOUNT, NO_EXPIRY);
+      await token.connect(payer).approve(upgraded, AMOUNT);
+      const { fee, net } = expectedSplit(AMOUNT, FEE_BPS);
+      await expect(
+        upgraded.connect(payer).payOrder(merchant.address, oid('ord_after')),
+      ).to.changeTokenBalances(token, [payer, merchant, feeRecipient], [-AMOUNT, net, fee]);
     });
   });
 });
