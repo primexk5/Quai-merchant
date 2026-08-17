@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ADMIN_API_KEY, BACKEND_URL } from "@/lib/payment";
+import { ADMIN_API_KEY, backendFetch } from "@/lib/payment";
 
 export interface DeliveryData {
   merchant: string;
@@ -39,7 +39,7 @@ export interface Merchant {
 }
 
 async function adminGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const res = await backendFetch(path, {
     headers: { authorization: `Bearer ${ADMIN_API_KEY}` },
     signal: AbortSignal.timeout(10_000),
   });
@@ -48,7 +48,7 @@ async function adminGet<T>(path: string): Promise<T> {
 }
 
 export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const res = await backendFetch(path, {
     method: "PATCH",
     headers: {
       authorization: `Bearer ${ADMIN_API_KEY}`,
