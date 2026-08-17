@@ -69,10 +69,18 @@ describe('PayWithQuai', function () {
 
   describe('registerOrder', function () {
     it('stores the order and emits OrderRegistered', async function () {
-      const { pay, merchant, token } = await loadFixture(deployFixture);
+      const { pay, merchant, token, feeRecipient } = await loadFixture(deployFixture);
       await expect(pay.connect(merchant).registerOrder(oid('ord_1'), token, AMOUNT, NO_EXPIRY))
         .to.emit(pay, 'OrderRegistered')
-        .withArgs(merchant.address, oid('ord_1'), await token.getAddress(), AMOUNT, NO_EXPIRY, FEE_BPS);
+        .withArgs(
+          merchant.address,
+          oid('ord_1'),
+          await token.getAddress(),
+          AMOUNT,
+          NO_EXPIRY,
+          FEE_BPS,
+          feeRecipient.address,
+        );
 
       const order = await pay.getOrder(merchant.address, oid('ord_1'));
       expect(order.merchant).to.equal(merchant.address);
@@ -201,6 +209,17 @@ describe('PayWithQuai', function () {
       ).to.changeTokenBalances(token, [payer, merchant, feeRecipient], [-AMOUNT, net, fee]);
     });
 
+    it('floors the fee in favor of the merchant (non-divisible amounts)', async function () {
+      const { pay, merchant, payer, feeRecipient, token } = await loadFixture(deployFixture);
+      const odd = 12_345_679n; // 6-decimal amount not divisible by 10_000
+      await pay.connect(merchant).registerOrder(oid('ord_odd'), token, odd, NO_EXPIRY);
+      await token.connect(payer).approve(pay, odd);
+
+      const fee = (odd * FEE_BPS) / 10_000n; // floor
+      await expect(pay.connect(payer).payOrder(merchant.address, oid('ord_odd')))
+        .to.changeTokenBalances(token, [payer, merchant, feeRecipient], [-odd, odd - fee, fee]);
+    });
+
     it('reverts for an unknown order', async function () {
       const { pay, merchant, payer } = await loadFixture(registeredFixture);
       await expect(
@@ -307,7 +326,10 @@ describe('PayWithQuai', function () {
 
     it('reverts on a direct native transfer to the contract', async function () {
       const { pay, payer } = await loadFixture(deployFixture);
-      await expect(payer.sendTransaction({ to: await pay.getAddress(), value: 1n })).to.be.reverted;
+      await expect(payer.sendTransaction({ to: await pay.getAddress(), value: 1n })).to.be.revertedWithCustomError(
+        pay,
+        'ReceiveRejected',
+      );
     });
   });
 
@@ -321,6 +343,14 @@ describe('PayWithQuai', function () {
         pay,
         'PaymentReceived',
       );
+    });
+
+    it('rejects an expiry equal to the current block timestamp', async function () {
+      const { pay, merchant, token } = await loadFixture(deployFixture);
+      const now = await time.latest();
+      await expect(
+        pay.connect(merchant).registerOrder(oid('ord_eq'), token, AMOUNT, now),
+      ).to.be.revertedWithCustomError(pay, 'InvalidExpiry');
     });
 
     it('rejects payment after expiry', async function () {
@@ -375,6 +405,92 @@ describe('PayWithQuai', function () {
     });
   });
 
+  describe('fee recipient locked at registration', function () {
+    it('sends ERC-20 fees to the recipient locked at registration, not a later change', async function () {
+      const { pay, owner, merchant, payer, feeRecipient, other, token } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_r'), token, AMOUNT, NO_EXPIRY);
+      // Owner redirects the platform fee pool after the order was registered.
+      await pay.connect(owner).setFeeConfig(FEE_BPS, other.address);
+      await token.connect(payer).approve(pay, AMOUNT);
+
+      const { fee, net } = expectedSplit(AMOUNT, FEE_BPS);
+      await expect(pay.connect(payer).payOrder(merchant.address, oid('ord_r')))
+        .to.emit(pay, 'FeePaid')
+        .withArgs(oid('ord_r'), await token.getAddress(), fee, feeRecipient.address);
+      expect(await token.balanceOf(feeRecipient.address)).to.equal(fee); // locked recipient paid
+      expect(await token.balanceOf(other.address)).to.equal(0); // new recipient gets nothing
+      expect(await token.balanceOf(merchant.address)).to.equal(net);
+    });
+
+    it('sends native fees to the recipient locked at registration', async function () {
+      const { pay, owner, merchant, payer, feeRecipient, other } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_rn'), ethers.ZeroAddress, AMOUNT, NO_EXPIRY);
+      await pay.connect(owner).setFeeConfig(FEE_BPS, other.address);
+
+      const { fee, net } = expectedSplit(AMOUNT, FEE_BPS);
+      await expect(
+        pay.connect(payer).payOrderNative(merchant.address, oid('ord_rn'), { value: AMOUNT }),
+      ).to.changeEtherBalances([merchant, feeRecipient, other], [net, fee, 0]);
+    });
+  });
+
+  describe('purgeSettledOrder', function () {
+    async function settledFixture() {
+      const base = await deployFixture();
+      await base.pay
+        .connect(base.merchant)
+        .registerOrder(oid('ord_p'), ethers.ZeroAddress, AMOUNT, NO_EXPIRY);
+      await base.pay.connect(base.payer).payOrderNative(base.merchant.address, oid('ord_p'), { value: AMOUNT });
+      return base;
+    }
+
+    it('records the settlement time on the order', async function () {
+      const { pay, merchant } = await loadFixture(settledFixture);
+      const order = await pay.getOrder(merchant.address, oid('ord_p'));
+      expect(order.settledAt).to.equal(BigInt(await time.latest()));
+    });
+
+    it('blocks purging an unpaid order', async function () {
+      const { pay, merchant, token } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_u'), token, AMOUNT, NO_EXPIRY);
+      await expect(
+        pay.connect(merchant).purgeSettledOrder(oid('ord_u')),
+      ).to.be.revertedWithCustomError(pay, 'OrderNotSettled');
+    });
+
+    it('blocks purging within the safety window', async function () {
+      const { pay, merchant } = await loadFixture(settledFixture);
+      await expect(
+        pay.connect(merchant).purgeSettledOrder(oid('ord_p')),
+      ).to.be.revertedWithCustomError(pay, 'PurgeDelayNotElapsed');
+    });
+
+    it('lets the merchant purge after the delay, freeing the order id for reuse', async function () {
+      const { pay, merchant } = await loadFixture(settledFixture);
+      const delay = BigInt(await pay.PURGE_DELAY());
+      await time.increaseTo(BigInt(await time.latest()) + delay + 1n);
+
+      await expect(pay.connect(merchant).purgeSettledOrder(oid('ord_p')))
+        .to.emit(pay, 'OrderPurged')
+        .withArgs(merchant.address, oid('ord_p'));
+
+      const order = await pay.getOrder(merchant.address, oid('ord_p'));
+      expect(order.exists).to.equal(false);
+      await expect(
+        pay.connect(merchant).registerOrder(oid('ord_p'), ethers.ZeroAddress, AMOUNT, NO_EXPIRY),
+      ).to.not.be.reverted;
+    });
+
+    it('cannot purge another merchant order (keyed by msg.sender)', async function () {
+      const { pay, merchant, other } = await loadFixture(settledFixture);
+      const delay = BigInt(await pay.PURGE_DELAY());
+      await time.increaseTo(BigInt(await time.latest()) + delay + 1n);
+      await expect(
+        pay.connect(other).purgeSettledOrder(oid('ord_p')),
+      ).to.be.revertedWithCustomError(pay, 'OrderNotFound');
+    });
+  });
+
   describe('rescueTokens', function () {
     it('lets the owner sweep stray ERC-20 sent directly to the contract', async function () {
       const { pay, owner, other, token } = await loadFixture(deployFixture);
@@ -386,6 +502,24 @@ describe('PayWithQuai', function () {
         .withArgs(await token.getAddress(), other.address, stray);
       expect(await token.balanceOf(other.address)).to.equal(stray);
       expect(await token.balanceOf(await pay.getAddress())).to.equal(0);
+    });
+
+    it('lets the owner sweep native QUAI force-sent to the contract', async function () {
+      const { pay, owner, other } = await loadFixture(deployFixture);
+      const stray = AMOUNT;
+      // The router's receive() reverts, so the only way native QUAI can arrive is a forced send
+      // (selfdestruct) — exactly the case rescueTokens(NATIVE) exists for.
+      const bomber = await ethers.deployContract('SelfDestructor', [], { value: stray });
+      await bomber.destroy(await pay.getAddress());
+      expect(await ethers.provider.getBalance(await pay.getAddress())).to.equal(stray);
+
+      const before = await ethers.provider.getBalance(other.address);
+      await expect(pay.connect(owner).rescueTokens(ethers.ZeroAddress, other.address, stray))
+        .to.emit(pay, 'TokensRescued')
+        .withArgs(ethers.ZeroAddress, other.address, stray);
+      const after = await ethers.provider.getBalance(other.address);
+      expect(after - before).to.equal(stray);
+      expect(await ethers.provider.getBalance(await pay.getAddress())).to.equal(0);
     });
 
     it('rejects rescue from a non-owner', async function () {
@@ -400,6 +534,22 @@ describe('PayWithQuai', function () {
       await expect(
         pay.connect(owner).rescueTokens(await token.getAddress(), ethers.ZeroAddress, 1),
       ).to.be.revertedWithCustomError(pay, 'ZeroAddress');
+    });
+  });
+
+  describe('fee locked at MAX_FEE_BPS', function () {
+    it('locks the 5% cap at registration even if the fee is later lowered', async function () {
+      const { pay, owner, merchant, payer, feeRecipient, token } = await loadFixture(deployFixture);
+      await pay.connect(owner).setFeeConfig(500, feeRecipient.address); // the cap
+      await pay.connect(merchant).registerOrder(oid('ord_max'), token, AMOUNT, NO_EXPIRY);
+      await pay.connect(owner).setFeeConfig(0, feeRecipient.address); // later lowered...
+      await token.connect(payer).approve(pay, AMOUNT);
+
+      // ...but the merchant still pays the 5% locked at registration.
+      const { fee, net } = expectedSplit(AMOUNT, 500n);
+      await expect(
+        pay.connect(payer).payOrder(merchant.address, oid('ord_max')),
+      ).to.changeTokenBalances(token, [payer, merchant, feeRecipient], [-AMOUNT, net, fee]);
     });
   });
 

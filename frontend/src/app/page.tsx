@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { Logo } from "@/components/logo";
 import {
   ArrowRight,
   Check,
@@ -60,8 +61,10 @@ const steps = [
 
 export default function Home() {
   return (
-    <main className="min-h-screen overflow-hidden bg-[#07090d] text-white">
+    <main className="min-h-screen bg-[#07090d] text-white">
       <Navbar />
+
+      <div className="overflow-hidden">
 
       {/* Hero */}
       <section className="relative">
@@ -474,13 +477,14 @@ export default function Home() {
       </section>
 
       <Footer />
+      </div>
     </main>
   );
 }
 
 function Navbar() {
   return (
-    <header className="relative z-50 border-b border-white/[0.05]">
+    <header className="sticky top-0 z-50 border-b border-white/[0.05] bg-[#07090d]/80 backdrop-blur-xl">
       <nav className="mx-auto flex h-18 max-w-7xl items-center justify-between px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2.5">
           <Logo />
@@ -511,6 +515,13 @@ function Navbar() {
           >
             Developers
           </a>
+
+          <Link
+            href="/docs"
+            className="text-sm text-slate-500 transition hover:text-white"
+          >
+            Docs
+          </Link>
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
@@ -541,15 +552,6 @@ function Navbar() {
   );
 }
 
-function Logo() {
-  return (
-    <div className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-sky-300 to-sky-500 text-slate-950">
-      <div className="absolute h-5 w-5 rotate-45 rounded-[5px] border-2 border-slate-950/80" />
-      <div className="relative h-2 w-2 rounded-full bg-slate-950" />
-    </div>
-  );
-}
-
 function Footer() {
   return (
     <footer className="border-t border-white/[0.06]">
@@ -563,6 +565,10 @@ function Footer() {
         </div>
 
         <div className="flex items-center gap-5 text-xs text-slate-600">
+          <Link href="/docs" className="transition hover:text-slate-400">
+            Docs
+          </Link>
+          <span>•</span>
           <span>Built on Quai Network</span>
           <span>•</span>
           <span>MVP Demo</span>

@@ -1,57 +1,58 @@
+"use client";
+
 import Link from "next/link";
 import {
   ArrowRight,
   ArrowUpRight,
   CreditCard,
   DollarSign,
-  ExternalLink,
   Plus,
   TrendingUp,
 } from "lucide-react";
-
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StatCard } from "@/components/ui/stat-card";
+import { formatDeliveryAmount, useRelayerData } from "@/lib/relayer";
 
-const payments = [
-  {
-    customer: "Customer #1042",
-    amount: "125.00 QUAI",
-    date: "Today, 14:32",
-    status: "confirmed" as const,
-  },
-  {
-    customer: "Customer #1041",
-    amount: "48.50 QUAI",
-    date: "Today, 12:08",
-    status: "confirmed" as const,
-  },
-  {
-    customer: "Customer #1040",
-    amount: "210.00 QUAI",
-    date: "Yesterday, 18:44",
-    status: "pending" as const,
-  },
-  {
-    customer: "Customer #1039",
-    amount: "32.00 QUAI",
-    date: "Yesterday, 15:21",
-    status: "confirmed" as const,
-  },
-];
+const ORCHARD_SCAN = "https://orchard.quaiscan.io/tx/";
 
 export default function DashboardPage() {
+  const { deliveries, merchants, loading, error } = useRelayerData();
+
+  const delivered = deliveries.filter((d) => d.status === "delivered");
+  const totalQuai = delivered.reduce(
+    (sum, d) => sum + (d.payload.data.token === "0x0000000000000000000000000000000000000000" ? Number(d.payload.data.net) : 0),
+    0,
+  );
+  const totalTokenAmount = delivered.reduce(
+    (sum, d) => sum + (d.payload.data.token !== "0x0000000000000000000000000000000000000000" ? Number(d.payload.data.net) : 0),
+    0,
+  );
+  const successRate =
+    deliveries.length > 0
+      ? Math.round((delivered.length / deliveries.length) * 1000) / 10
+      : 0;
+  const pending = deliveries.filter((d) => d.status === "pending").length;
+
+  const totalDisplay = `${(totalQuai / 1e18).toFixed(2)} QUAI${
+    totalTokenAmount > 0
+      ? ` + ${(totalTokenAmount / 1e6).toFixed(2)} mUSDQ`
+      : ""
+  }`;
+
   return (
     <DashboardShell>
-      <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8 lg:py-10">
+      <div className="mx-auto max-w-3xl px-5 py-8 lg:py-10">
         <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <p className="mb-2 text-sm text-[#38bdf8]">Good afternoon</p>
-            <h1 className="text-3xl font-semibold tracking-tight text-white">
+            <p className="mb-2 text-sm text-[#38bdf8]">
+              {merchants[0]?.name ?? "Merchant overview"}
+            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">
               Merchant overview
             </h1>
-            <p className="mt-2 text-sm text-[#667085]">
-              Track your Quai payment activity and settlement.
+            <p className="mt-2 text-sm text-[#8b93a7]">
+              Live from the PayWithQuai relayer on Orchard testnet.
             </p>
           </div>
 
@@ -64,110 +65,150 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            Relayer unreachable: {error} — is the backend running on
+            localhost:8080?
+          </div>
+        )}
+
+        {loading && (
+          <p className="mb-6 text-sm text-[#8b93a7]">Loading live data…</p>
+        )}
+
+        <div className="space-y-4">
           <StatCard
             label="Total received"
-            value="2,485.50"
-            description="QUAI this month"
+            value={totalDisplay}
+            description={`${delivered.length} confirmed payment(s)`}
             icon={DollarSign}
           />
 
           <StatCard
             label="Transactions"
-            value="184"
-            description="+12.4% from last month"
+            value={String(deliveries.length)}
+            description={`${pending} pending in queue`}
             icon={CreditCard}
           />
 
           <StatCard
             label="Success rate"
-            value="98.4%"
-            description="Across all payments"
+            value={`${successRate}%`}
+            description="Delivered / total"
             icon={TrendingUp}
           />
 
           <StatCard
-            label="Settlement"
-            value="~2.4s"
-            description="Average confirmation"
+            label="Network"
+            value="Orchard"
+            description="Cyprus-1 · chain 15000"
             icon={ArrowUpRight}
           />
         </div>
 
-        <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_340px]">
+        <div className="mt-8 space-y-6">
           <section className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0c1017]">
             <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-5">
               <div>
-                <h2 className="font-semibold text-white">Recent payments</h2>
-                <p className="mt-1 text-xs text-[#667085]">
-                  Your latest transactions
+                <h2 className="font-semibold">Recent payments</h2>
+                <p className="mt-1 text-xs text-[#8b93a7]">
+                  Confirmed settlements via the relayer
                 </p>
               </div>
 
               <Link
                 href="/dashboard/payments"
-                className="flex items-center gap-1 text-xs font-medium text-[#38bdf8] hover:text-[#67d8ff]"
+                className="flex items-center gap-1 text-xs font-medium text-[#38bdf8]"
               >
                 View all
                 <ArrowRight size={13} />
               </Link>
             </div>
 
-            <div className="divide-y divide-white/[0.05]">
-              {payments.map((payment) => (
-                <div
-                  key={`${payment.customer}-${payment.date}`}
-                  className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-white">
-                      {payment.customer}
-                    </p>
-                    <p className="mt-1 text-xs text-[#667085]">
-                      {payment.date}
-                    </p>
-                  </div>
+            {deliveries.length === 0 ? (
+              <div className="px-5 py-14 text-center text-sm text-[#8b93a7]">
+                No payments yet — create one from the checkout demo.
+              </div>
+            ) : (
+              <div className="divide-y divide-white/[0.06]">
+                {deliveries.slice(0, 5).map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex items-center justify-between gap-4 px-5 py-4"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {formatDeliveryAmount(d.payload.data.net, d.payload.data.token)}
+                      </p>
+                      <p className="mt-0.5 truncate font-mono text-xs text-[#8b93a7]">
+                        {d.payload.data.orderId.slice(0, 18)}…
+                      </p>
+                    </div>
 
-                  <div className="flex items-center justify-between gap-5 sm:justify-end">
-                    <p className="text-sm font-medium text-white">
-                      {payment.amount}
-                    </p>
-                    <StatusBadge status={payment.status} />
+                    <div className="flex shrink-0 items-center gap-3">
+                      <StatusBadge
+                        status={
+                          d.status === "delivered"
+                            ? "confirmed"
+                            : d.status === "failed"
+                              ? "failed"
+                              : "pending"
+                        }
+                      />
+                      <a
+                        href={`${ORCHARD_SCAN}${d.payload.data.txHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#8b93a7] transition hover:text-[#38bdf8]"
+                        title="View on Quaiscan"
+                      >
+                        <ArrowUpRight size={14} />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+            <h2 className="font-semibold">Status breakdown</h2>
+            <p className="mt-1 text-xs text-[#8b93a7]">All time</p>
+
+            <div className="mt-6 space-y-4">
+              {(
+                [
+                  ["delivered", delivered.length, "text-emerald-300"],
+                  ["pending", pending, "text-amber-400"],
+                  [
+                    "failed",
+                    deliveries.filter((d) => d.status === "failed").length,
+                    "text-red-400",
+                  ],
+                ] as const
+              ).map(([label, count, color]) => (
+                <div key={label}>
+                  <div className="mb-1.5 flex items-center justify-between text-xs">
+                    <span className="capitalize text-[#8b93a7]">{label}</span>
+                    <span className={`font-mono ${color}`}>{count}</span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[#0c1017]/[0.04]">
+                    <div
+                      className={`h-full rounded-full ${color} ${
+                        deliveries.length === 0 ? "w-0" : ""
+                      }`}
+                      style={{
+                        width: `${
+                          deliveries.length === 0
+                            ? 0
+                            : (count / deliveries.length) * 100
+                        }%`,
+                      }}
+                    />
                   </div>
                 </div>
               ))}
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
-            <div className="mb-6">
-              <h2 className="font-semibold text-white">Payment checkout</h2>
-              <p className="mt-1 text-xs leading-5 text-[#667085]">
-                Preview the checkout experience your customers will see.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-white/[0.07] bg-[#080b10] p-4">
-              <p className="text-xs text-[#667085]">Demo payment</p>
-              <p className="mt-2 text-2xl font-semibold text-white">
-                25.00 <span className="text-sm text-[#38bdf8]">QUAI</span>
-              </p>
-
-              <div className="mt-5 h-px bg-white/[0.06]" />
-
-              <div className="mt-4 flex items-center justify-between text-xs">
-                <span className="text-[#667085]">Network</span>
-                <span className="text-white">Quai</span>
-              </div>
-            </div>
-
-            <Link
-              href="/checkout/demo"
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/[0.04]"
-            >
-              Open checkout
-              <ExternalLink size={14} />
-            </Link>
           </section>
         </div>
       </div>

@@ -1,0 +1,214 @@
+import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, openSync, closeSync, fsyncSync, chmodSync } from 'node:fs';
+import { dirname } from 'node:path';
+import type { Store } from './index.js';
+import type { Merchant, WebhookDelivery } from '../types.js';
+import { log } from '../logger.js';
+
+const logger = log('store');
+
+interface FileShape {
+  cursors: Record<string, number>; // key: "<chainId>:<contractAddress>" — scoped block cursor
+  merchants: Record<string, Merchant>; // key: lowercased address
+  deliveries: Record<string, WebhookDelivery>; // key: paymentId
+}
+
+/** Case-insensitive lookup key binding a delivery to its (merchant, orderId). */
+function orderKey(merchant: string, orderId: string): string {
+  return `${merchant.toLowerCase()}:${orderId.toLowerCase()}`;
+}
+
+/**
+ * Dependency-free persistence backed by a single JSON file, loaded into memory on start and
+ * written atomically (temp file + rename) on each mutation. Correct for a single-process relayer;
+ * for HA / high throughput, implement {@link Store} over SQLite or Postgres instead.
+ *
+ * All persisted values are JSON-native (numbers, strings, booleans) — on-chain amounts are stored
+ * as decimal strings inside the webhook payload — so there are no bigint serialization concerns.
+ *
+ * SECURITY: merchant webhook secrets are stored in plaintext in this file. The file's OS-level
+ * permissions are the trust boundary — keep DATABASE_PATH outside shared/backed-up paths and
+ * restrict read access to the service user.
+ */
+export class JsonStore implements Store {
+  private readonly path: string;
+  private readonly tmpPath: string;
+  private data: FileShape;
+  private readonly byMerchantId = new Map<string, string>(); // merchantId -> address key
+  private readonly byOrderKey = new Map<string, string>(); // "<merchant>:<orderId>" -> delivery id
+
+  constructor(path: string) {
+    this.path = path;
+    this.tmpPath = `${path}.tmp`;
+    // 0700: this file holds plaintext webhook secrets (see class note) — keep the whole directory
+    // owner-only. mode is masked by umask on creation and is a no-op if the dir already exists.
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    this.data = this.read();
+    for (const [addr, m] of Object.entries(this.data.merchants)) {
+      this.byMerchantId.set(m.merchantId, addr);
+    }
+    for (const [id, d] of Object.entries(this.data.deliveries)) {
+      this.byOrderKey.set(orderKey(d.payload.data.merchant, d.payload.data.orderId), id);
+    }
+    logger.info(
+      { path, merchants: Object.keys(this.data.merchants).length, cursors: Object.keys(this.data.cursors) },
+      'store loaded',
+    );
+  }
+
+  private read(): FileShape {
+    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {} };
+    try {
+      const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as {
+        cursor?: number | null;
+        cursors?: Record<string, number>;
+        merchants?: Record<string, Merchant>;
+        deliveries?: Record<string, WebhookDelivery>;
+      };
+      if (parsed.cursors === undefined && typeof parsed.cursor === 'number') {
+        // Legacy single-cursor file from before cursors were scoped. Keep it under a `legacy`
+        // scope so the current (chainId, contract) scope starts fresh; re-enqueuing is safe
+        // because payments are idempotent by (txHash, logIndex).
+        logger.warn('migrating legacy un-scoped cursor — the indexer will re-scan from START_BLOCK/head');
+        parsed.cursors = { legacy: parsed.cursor };
+      }
+      return {
+        cursors: parsed.cursors ?? {},
+        merchants: parsed.merchants ?? {},
+        deliveries: parsed.deliveries ?? {},
+      };
+    } catch (err) {
+      throw new Error(`Failed to read store at ${this.path}: ${(err as Error).message}`);
+    }
+  }
+
+  private flush(): void {
+    // 0600: the store holds plaintext webhook secrets. mode only applies when the temp file is
+    // created, so chmod the final path after the rename to guarantee perms even if it pre-existed.
+    writeFileSync(this.tmpPath, JSON.stringify(this.data), { encoding: 'utf8', mode: 0o600 });
+    // fsync before the rename so a crash after the rename can never leave the *target* file as
+    // stale data — otherwise the last delivery/cursor write could be silently lost (a payment
+    // would never be webhook-delivered). The rename itself is atomic on POSIX.
+    const fd = openSync(this.tmpPath, 'r+');
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(this.tmpPath, this.path);
+    try {
+      chmodSync(this.path, 0o600);
+    } catch {
+      /* best-effort: filesystems without POSIX perms (e.g. Windows) don't support this */
+    }
+    // fsync the parent directory so the rename itself is durable — without this, a crash right
+    // after rename could roll back the directory entry on some filesystems, resurfacing the old
+    // file. Best-effort: opening a directory for fsync is not portable (fails on Windows).
+    try {
+      const dirFd = openSync(dirname(this.path), 'r');
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    } catch {
+      /* directory fsync unsupported on this platform — the file fsync above still holds */
+    }
+  }
+
+  getCursor(scope: string): number | undefined {
+    return this.data.cursors[scope];
+  }
+
+  setCursor(scope: string, blockNumber: number): void {
+    this.data.cursors[scope] = blockNumber;
+    this.flush();
+  }
+
+  upsertMerchant(m: Merchant): void {
+    const key = m.address.toLowerCase();
+    this.data.merchants[key] = { ...m, address: key };
+    this.byMerchantId.set(m.merchantId, key);
+    this.flush();
+  }
+
+  getMerchantByAddress(address: string): Merchant | undefined {
+    return this.data.merchants[address.toLowerCase()];
+  }
+
+  getMerchantById(merchantId: string): Merchant | undefined {
+    const key = this.byMerchantId.get(merchantId);
+    return key ? this.data.merchants[key] : undefined;
+  }
+
+  listMerchants(): Merchant[] {
+    return Object.values(this.data.merchants);
+  }
+
+  insertDeliveryIfAbsent(d: WebhookDelivery): boolean {
+    if (this.data.deliveries[d.id]) return false;
+    this.data.deliveries[d.id] = d;
+    this.byOrderKey.set(orderKey(d.payload.data.merchant, d.payload.data.orderId), d.id);
+    this.flush();
+    return true;
+  }
+
+  getDelivery(id: string): WebhookDelivery | undefined {
+    return this.data.deliveries[id];
+  }
+
+  getDeliveryByOrder(merchant: string, orderId: string): WebhookDelivery | undefined {
+    const id = this.byOrderKey.get(orderKey(merchant, orderId));
+    return id ? this.data.deliveries[id] : undefined;
+  }
+
+  requeueSkippedForMerchant(m: Merchant): number {
+    const addr = m.address.toLowerCase();
+    let requeued = 0;
+    for (const d of Object.values(this.data.deliveries)) {
+      if (d.status !== 'skipped' || d.payload.data.merchant.toLowerCase() !== addr) continue;
+      const now = Date.now();
+      this.data.deliveries[d.id] = {
+        ...d,
+        merchantId: m.merchantId,
+        url: m.webhookUrl,
+        status: 'pending',
+        attempts: 0,
+        nextAttemptAt: now,
+        lastError: null,
+        updatedAt: now,
+        // Rebuild the nested payload id too: while skipped it held the `unregistered:<addr>`
+        // placeholder, and that body is what gets HMAC-signed and POSTed. Leaving it stale would
+        // deliver a webhook whose data.merchantId never matches the merchant now receiving it.
+        payload: { ...d.payload, data: { ...d.payload.data, merchantId: m.merchantId } },
+      };
+      requeued++;
+    }
+    if (requeued > 0) {
+      this.flush();
+      logger.info({ merchantId: m.merchantId, address: addr, requeued }, 're-queued skipped payments');
+    }
+    return requeued;
+  }
+
+  updateDelivery(d: WebhookDelivery): void {
+    this.data.deliveries[d.id] = d;
+    this.flush();
+  }
+
+  getDueDeliveries(now: number, limit: number): WebhookDelivery[] {
+    return Object.values(this.data.deliveries)
+      .filter((d) => d.status === 'pending' && d.nextAttemptAt <= now)
+      .sort((a, b) => a.nextAttemptAt - b.nextAttemptAt)
+      .slice(0, limit);
+  }
+
+  listDeliveries(limit: number): WebhookDelivery[] {
+    return Object.values(this.data.deliveries)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+  }
+
+  close(): void {
+    this.flush();
+  }
+}

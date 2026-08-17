@@ -1,346 +1,251 @@
 "use client";
 
 import {
-  ArrowUpRight,
   BarChart3,
   CheckCircle2,
   Clock3,
   Download,
   TrendingUp,
+  Wallet2,
   XCircle,
 } from "lucide-react";
-
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { useRelayerData, type Delivery } from "@/lib/relayer";
 
-const volumeData = [
-  { day: "Mon", value: 58 },
-  { day: "Tue", value: 72 },
-  { day: "Wed", value: 48 },
-  { day: "Thu", value: 86 },
-  { day: "Fri", value: 68 },
-  { day: "Sat", value: 94 },
-  { day: "Sun", value: 78 },
-];
+interface DailyPoint {
+  day: string;
+  volume: number;
+  count: number;
+}
 
-const payments = [
-  { label: "Confirmed", value: "184", percentage: "98.4%" },
-  { label: "Pending", value: "1", percentage: "0.5%" },
-  { label: "Failed", value: "2", percentage: "1.1%" },
-];
+function computeStats(deliveries: Delivery[]) {
+  const delivered = deliveries.filter((d) => d.status === "delivered");
+  const totalQuai = delivered.reduce((sum, d) => {
+    return (
+      sum +
+      (d.payload.data.token ===
+      "0x0000000000000000000000000000000000000000"
+        ? Number(d.payload.data.net)
+        : 0)
+    );
+  }, 0);
+  const totalToken = delivered.reduce((sum, d) => {
+    return (
+      sum +
+      (d.payload.data.token !==
+      "0x0000000000000000000000000000000000000000"
+        ? Number(d.payload.data.net)
+        : 0)
+    );
+  }, 0);
+
+  const byStatus = {
+    delivered: delivered.length,
+    pending: deliveries.filter((d) => d.status === "pending").length,
+    failed: deliveries.filter((d) => d.status === "failed").length,
+  };
+
+  const successRate =
+    deliveries.length > 0
+      ? Math.round((delivered.length / deliveries.length) * 1000) / 10
+      : 0;
+
+  const delays = delivered.map(
+    (d) => d.createdAt - d.payload.data.timestamp * 1000,
+  );
+  const avgDelay =
+    delays.length > 0
+      ? Math.round(delays.reduce((a, b) => a + b, 0) / delays.length)
+      : 0;
+
+  const dailyMap = new Map<string, DailyPoint>();
+  for (const d of delivered) {
+    const day = new Date(d.payload.data.timestamp * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const entry = dailyMap.get(day) ?? { day, volume: 0, count: 0 };
+    entry.volume += Number(d.payload.data.net);
+    entry.count += 1;
+    dailyMap.set(day, entry);
+  }
+  const daily = [...dailyMap.values()].sort((a, b) =>
+    a.day.localeCompare(b.day),
+  );
+
+  return { totalQuai, totalToken, byStatus, successRate, avgDelay, daily };
+}
+
+function formatDelay(ms: number): string {
+  if (ms < 1000) return "<1s";
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
+}
 
 function MetricCard({
   icon,
   label,
   value,
   detail,
-  change,
-  positive,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   detail: string;
-  change: string;
-  positive?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#0c1017] p-5">
-      <div className="flex items-center justify-between">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.04] text-sky-400">
+    <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+      <div className="mb-5 flex items-center justify-between">
+        <p className="text-sm text-[#8b93a7]">{label}</p>
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
           {icon}
         </div>
-
-        <span
-          className={`text-xs font-medium ${
-            positive ? "text-emerald-400" : "text-red-400"
-          }`}
-        >
-          {change}
-        </span>
       </div>
-
-      <p className="mt-5 text-xs text-slate-500">{label}</p>
-
-      <p className="mt-1 text-2xl font-semibold tracking-tight text-white">
-        {value}
-      </p>
-
-      <p className="mt-1 text-xs text-slate-600">{detail}</p>
+      <p className="text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="mt-1 text-xs text-[#8b93a7]">{detail}</p>
     </div>
   );
 }
 
 export default function AnalyticsPage() {
+  const { deliveries, loading, error } = useRelayerData();
+  const stats = computeStats(deliveries);
+  const maxDaily = Math.max(1, ...stats.daily.map((d) => d.volume));
+
   return (
     <DashboardShell>
-      <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8 lg:py-10">
-        {/* Header */}
+      <div className="mx-auto max-w-3xl px-5 py-8 lg:py-10">
         <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
           <div>
-            <p className="mb-2 text-sm text-[#38bdf8]">Performance</p>
-
-            <h1 className="text-3xl font-semibold tracking-tight text-white">
+            <p className="mb-2 text-sm text-[#38bdf8]">Analytics</p>
+            <h1 className="text-3xl font-semibold tracking-tight">
               Analytics
             </h1>
-
-            <p className="mt-2 text-sm text-[#667085]">
-              Understand your payment activity and settlement performance.
+            <p className="mt-2 text-sm text-[#8b93a7]">
+              Live metrics from the relayer on Orchard testnet.
             </p>
           </div>
 
-          <button className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/10 bg-[#0c1017] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-white/20 hover:bg-[#111722]">
+          <button
+            disabled
+            className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.07] px-4 py-2.5 text-sm font-medium text-[#8b93a7] opacity-60"
+            title="CSV export is a demo placeholder"
+          >
             <Download size={16} />
             Export report
           </button>
         </div>
 
-        {/* Period selector */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center rounded-lg border border-white/10 bg-[#0c1017] p-1">
-            {["7 days", "30 days", "90 days"].map((period, index) => (
-              <button
-                key={period}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  index === 1
-                    ? "bg-white/10 text-white"
-                    : "text-slate-500 hover:text-slate-300"
-                }`}
-              >
-                {period}
-              </button>
-            ))}
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            Relayer unreachable: {error}
           </div>
+        )}
 
-          <span className="hidden text-xs text-slate-600 sm:block">
-            Aug 1 – Aug 30, 2026
-          </span>
-        </div>
+        {loading && (
+          <p className="mb-6 text-sm text-[#8b93a7]">Loading live data…</p>
+        )}
 
         {/* KPI cards */}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="space-y-4">
+          <MetricCard
+            icon={<Wallet2 size={18} />}
+            label="Total volume"
+            value={`${(stats.totalQuai / 1e18).toFixed(2)} QUAI`}
+            detail={`${stats.totalToken > 0 ? `+ ${(stats.totalToken / 1e6).toFixed(2)} mUSDQ · ` : ""}confirmed volume`}
+          />
           <MetricCard
             icon={<BarChart3 size={18} />}
-            label="Total volume"
-            value="2,485.50"
-            detail="QUAI this month"
-            change="+12.4%"
-            positive
+            label="Transactions"
+            value={String(deliveries.length)}
+            detail="Total webhooks recorded"
           />
-
           <MetricCard
             icon={<TrendingUp size={18} />}
-            label="Transactions"
-            value="184"
-            detail="Total payments"
-            change="+8.2%"
-            positive
-          />
-
-          <MetricCard
-            icon={<CheckCircle2 size={18} />}
             label="Success rate"
-            value="98.4%"
-            detail="Across all payments"
-            change="+1.6%"
-            positive
+            value={`${stats.successRate}%`}
+            detail="Delivered / total"
           />
-
           <MetricCard
             icon={<Clock3 size={18} />}
-            label="Avg. settlement"
-            value="~2.4s"
-            detail="Average confirmation"
-            change="-0.3s"
-            positive
+            label="Avg settlement time"
+            value={formatDelay(stats.avgDelay)}
+            detail="Webhook queue → delivery"
           />
         </section>
 
-        {/* Main chart */}
-        <section className="mt-6 rounded-xl border border-white/10 bg-[#0c1017]">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-white">
-                Payment volume
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Daily payment volume in QUAI
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs text-emerald-400">
-              <ArrowUpRight size={14} />
-              12.4% vs previous period
-            </div>
-          </div>
-
-          <div className="px-5 pb-6 pt-8">
-            <div className="relative h-64">
-              {/* Grid */}
-              <div className="absolute inset-0 flex flex-col justify-between">
-                {[100, 75, 50, 25, 0].map((value) => (
-                  <div
-                    key={value}
-                    className="flex items-center gap-3 border-t border-white/[0.05]"
-                  >
-                    <span className="w-7 text-right text-[10px] text-slate-600">
-                      {value}
-                    </span>
-
-                    <div className="h-px flex-1" />
-                  </div>
-                ))}
-              </div>
-
-              {/* Bars */}
-              <div className="absolute inset-x-12 bottom-0 top-2 flex items-end justify-between gap-3">
-                {volumeData.map((item, index) => (
-                  <div
-                    key={item.day}
-                    className="flex h-full flex-1 flex-col items-center justify-end gap-2"
-                  >
-                    <div
-                      className="w-full max-w-12 rounded-t-md bg-sky-400/80 transition hover:bg-sky-300"
-                      style={{
-                        height: `${item.value}%`,
-                        opacity: index === 5 ? 1 : 0.72,
-                      }}
-                    />
-
-                    <span className="text-[10px] text-slate-600">
-                      {item.day}
-                    </span>
-                  </div>
-                ))}
+        <section className="mt-6 space-y-6">
+          {/* Daily volume */}
+          <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold">Daily volume</h2>
+                <p className="mt-1 text-xs text-[#8b93a7]">Last 14 days</p>
               </div>
             </div>
-          </div>
-        </section>
 
-        {/* Bottom analytics */}
-        <section className="mt-6 grid gap-6 lg:grid-cols-2">
-          {/* Payment status */}
-          <div className="rounded-xl border border-white/10 bg-[#0c1017]">
-            <div className="border-b border-white/10 px-5 py-4">
-              <h2 className="text-sm font-semibold text-white">
-                Payment status
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Breakdown of your recent transactions.
+            {stats.daily.length === 0 ? (
+              <p className="py-10 text-center text-sm text-[#8b93a7]">
+                No confirmed payments yet.
               </p>
-            </div>
-
-            <div className="space-y-5 p-5">
-              {payments.map((payment) => {
-                const confirmed = payment.label === "Confirmed";
-                const pending = payment.label === "Pending";
-
-                return (
-                  <div key={payment.label}>
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {confirmed ? (
-                          <CheckCircle2
-                            size={15}
-                            className="text-emerald-400"
-                          />
-                        ) : pending ? (
-                          <Clock3 size={15} className="text-amber-400" />
-                        ) : (
-                          <XCircle size={15} className="text-red-400" />
-                        )}
-
-                        <span className="text-sm text-slate-300">
-                          {payment.label}
-                        </span>
+            ) : (
+              <div className="space-y-3">
+                {stats.daily
+                  .slice(-14)
+                  .map((point) => (
+                    <div key={point.day} className="flex items-center gap-3">
+                      <span className="w-20 shrink-0 font-mono text-[11px] text-[#8b93a7]">
+                        {point.day.slice(5)}
+                      </span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#0c1017]/[0.04]">
+                        <div
+                          className="h-full rounded-full bg-[#38bdf8]"
+                          style={{
+                            width: `${Math.max(3, (point.volume / maxDaily) * 100)}%`,
+                          }}
+                        />
                       </div>
-
-                      <div className="text-right">
-                        <span className="text-sm font-medium text-white">
-                          {payment.value}
-                        </span>
-
-                        <span className="ml-2 text-xs text-slate-600">
-                          {payment.percentage}
-                        </span>
-                      </div>
+                      <span className="w-16 shrink-0 text-right font-mono text-[11px] text-[#8b93a7]">
+                        {(point.volume / 1e18).toFixed(1)}
+                      </span>
                     </div>
-
-                    <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
-                      <div
-                        className={`h-full rounded-full ${
-                          confirmed
-                            ? "w-[98%] bg-emerald-400"
-                            : pending
-                              ? "w-[8%] bg-amber-400"
-                              : "w-[3%] bg-red-400"
-                        }`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  ))}
+              </div>
+            )}
           </div>
 
-          {/* Settlement performance */}
-          <div className="rounded-xl border border-white/10 bg-[#0c1017]">
-            <div className="border-b border-white/10 px-5 py-4">
-              <h2 className="text-sm font-semibold text-white">
-                Settlement performance
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Network confirmation and settlement metrics.
-              </p>
+          {/* Status breakdown */}
+          <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+            <div className="mb-6">
+              <h2 className="font-semibold">Delivery status</h2>
+              <p className="mt-1 text-xs text-[#8b93a7]">All time</p>
             </div>
 
-            <div className="space-y-6 p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-300">
-                    Average settlement
-                  </p>
-
-                  <p className="mt-1 text-xs text-slate-600">
-                    Time from payment to confirmation
-                  </p>
+            <div className="space-y-5">
+              {(
+                [
+                  [
+                    "Delivered",
+                    stats.byStatus.delivered,
+                    CheckCircle2,
+                    "text-emerald-300",
+                  ],
+                  [
+                    "Pending",
+                    stats.byStatus.pending,
+                    Clock3,
+                    "text-amber-400",
+                  ],
+                  ["Failed", stats.byStatus.failed, XCircle, "text-red-400"],
+                ] as const
+              ).map(([label, count, Icon, color]) => (
+                <div key={label} className="flex items-center gap-4">
+                  <Icon size={16} className={color} />
+                  <span className="flex-1 text-sm text-[#8b93a7]">
+                    {label}
+                  </span>
+                  <span className="font-mono text-sm text-white">{count}</span>
                 </div>
-
-                <p className="text-lg font-semibold text-white">~2.4s</p>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
-                <div>
-                  <p className="text-sm text-slate-300">
-                    Successful settlements
-                  </p>
-
-                  <p className="mt-1 text-xs text-slate-600">
-                    Confirmed transactions
-                  </p>
-                </div>
-
-                <p className="text-lg font-semibold text-emerald-400">
-                  98.4%
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
-                <div>
-                  <p className="text-sm text-slate-300">Network status</p>
-
-                  <p className="mt-1 text-xs text-slate-600">
-                    Quai payment network
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Operational
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </section>

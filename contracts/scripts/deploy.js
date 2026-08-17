@@ -16,7 +16,7 @@
  *     NOT move until the Timelock calls acceptOwnership() — schedule that from the multisig to
  *     finish the hand-off (the script prints the exact steps).
  *
- * Requires contracts/.env (see .env.dist): RPC_URL, CHAIN_ID, CYPRUS1_PK, and optionally
+ * Requires contracts/.env (see .env.example): RPC_URL, CHAIN_ID, CYPRUS1_PK, and optionally
  * FEE_RECIPIENT / FEE_BPS / STABLECOIN_ADDR / MULTISIG_ADDR / TIMELOCK_MIN_DELAY.
  * Writes the resulting addresses to deployments/<network>.json.
  *
@@ -40,16 +40,43 @@ async function pushMetadata(contractName) {
     );
     return undefined;
   }
-  return hre.deployMetadata.pushMetadataToIPFS(contractName);
+  try {
+    return await hre.deployMetadata.pushMetadataToIPFS(contractName);
+  } catch (err) {
+    // quais' ContractFactory rejects an empty CID; fall back to a syntactically valid
+    // placeholder so the deploy proceeds (source verification will simply be unavailable).
+    console.warn(`⚠️  IPFS push failed for ${contractName} (${err.message}) — using placeholder CID.`);
+    return 'Qm' + '0'.repeat(44);
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The public Orchard RPC is flaky (dropped calls / -32000 with an empty message).
+// Retry each step a few times before giving up.
+async function withRetry(fn, label, tries = 5) {
+  let lastErr;
+  for (let i = 1; i <= tries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      console.warn(`⚠️  ${label} failed (attempt ${i}/${tries}): ${err.message?.slice(0, 120) || err}`);
+      if (i < tries) await sleep(2000 * i);
+    }
+  }
+  throw lastErr;
 }
 
 async function deployContract(name, args, wallet) {
-  const artifact = await hre.artifacts.readArtifact(name);
-  const ipfsHash = await pushMetadata(name);
-  const factory = new quais.ContractFactory(artifact.abi, artifact.bytecode, wallet, ipfsHash);
-  const contract = await factory.deploy(...args);
-  await contract.waitForDeployment();
-  return { contract, address: await contract.getAddress() };
+  return withRetry(async () => {
+    const artifact = await hre.artifacts.readArtifact(name);
+    const ipfsHash = await pushMetadata(name);
+    const factory = new quais.ContractFactory(artifact.abi, artifact.bytecode, wallet, ipfsHash);
+    const contract = await factory.deploy(...args);
+    await contract.waitForDeployment();
+    return { contract, address: await contract.getAddress() };
+  }, `deploy ${name}`);
 }
 
 async function main() {
@@ -91,15 +118,21 @@ async function main() {
   const pay = new quais.Contract(proxy.address, implArtifact.abi, wallet);
 
   // Allowlist the settlement assets merchants may price orders in.
-  await (await pay.setTokenAccepted(ZERO, true)).wait();
-  console.log('Accepted asset: native QUAI');
+  await withRetry(async () => {
+    await (await pay.setTokenAccepted(ZERO, true)).wait();
+    console.log('Accepted asset: native QUAI');
+  }, 'allowlist native QUAI');
   if (mockAddress) {
-    await (await pay.setTokenAccepted(mockAddress, true)).wait();
-    console.log(`Accepted asset: ${mockAddress} (mUSDQ)`);
+    await withRetry(async () => {
+      await (await pay.setTokenAccepted(mockAddress, true)).wait();
+      console.log(`Accepted asset: ${mockAddress} (mUSDQ)`);
+    }, 'allowlist mUSDQ');
   }
   if (process.env.STABLECOIN_ADDR) {
-    await (await pay.setTokenAccepted(process.env.STABLECOIN_ADDR, true)).wait();
-    console.log(`Accepted asset: ${process.env.STABLECOIN_ADDR} (STABLECOIN_ADDR)`);
+    await withRetry(async () => {
+      await (await pay.setTokenAccepted(process.env.STABLECOIN_ADDR, true)).wait();
+      console.log(`Accepted asset: ${process.env.STABLECOIN_ADDR} (STABLECOIN_ADDR)`);
+    }, 'allowlist STABLECOIN_ADDR');
   }
 
   // 4) Governance: hand upgrade authority to a Timelock owned by the multisig (if configured).
@@ -116,7 +149,9 @@ async function main() {
     timelockAddress = timelock.address;
     console.log(`TimelockController: ${timelockAddress} (minDelay ${minDelay}s, gov=${multisig})`);
 
-    await (await pay.transferOwnership(timelockAddress)).wait();
+    await withRetry(async () => {
+      await (await pay.transferOwnership(timelockAddress)).wait();
+    }, 'transferOwnership');
     console.log(`\nOwnership transfer STARTED: pendingOwner = ${timelockAddress}`);
     console.log('Ownable2Step means the Timelock must accept before it becomes owner. From the');
     console.log('multisig, schedule + execute this call through the Timelock to finish the hand-off:');

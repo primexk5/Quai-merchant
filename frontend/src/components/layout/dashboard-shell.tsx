@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  BookOpen,
   CreditCard,
   LayoutDashboard,
   LogOut,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
+import { Logo } from "@/components/logo";
 
 const navigation = [
   {
@@ -53,9 +55,7 @@ export function DashboardShell({
       >
         <div className="flex h-20 items-center justify-between border-b border-white/[0.07] px-6">
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#38bdf8] text-[#071018]">
-              <span className="text-lg font-bold">Q</span>
-            </div>
+            <Logo className="h-9 w-9" />
 
             <div>
               <p className="text-sm font-bold tracking-tight">PAY WITH</p>
@@ -104,6 +104,14 @@ export function DashboardShell({
         </div>
 
         <div className="border-t border-white/[0.07] p-4">
+          <Link
+            href="/docs"
+            className="mb-3 flex items-center gap-3 px-2 text-sm text-[#8b93a7] hover:text-white"
+          >
+            <BookOpen size={16} />
+            Documentation
+          </Link>
+
           <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
             <p className="text-xs text-[#667085]">Connected wallet</p>
             <p className="mt-1 truncate text-sm font-medium text-white">

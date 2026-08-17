@@ -1,0 +1,217 @@
+import { getZoneForAddress } from "quais";
+
+export type WalletBrand =
+  | "pelagus"
+  | "metamask"
+  | "rabby"
+  | "coinbase"
+  | "brave"
+  | "okx"
+  | "bitget"
+  | "trust"
+  | "frame"
+  | "generic";
+
+export interface Eip1193Provider {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+  on?(event: string, handler: (...args: unknown[]) => void): void;
+  removeListener?(event: string, handler: (...args: unknown[]) => void): void;
+}
+
+export interface DetectedWallet {
+  id: string;
+  name: string;
+  brand: WalletBrand;
+  provider: Eip1193Provider;
+}
+
+export const QUAI_ORCHARD_CHAIN = {
+  chainId: "0x3A98", // 15000 — Orchard testnet
+  chainName: "Quai Network Orchard",
+  nativeCurrency: { name: "Quai", symbol: "QUAI", decimals: 18 },
+  rpcUrls: [process.env.NEXT_PUBLIC_RPC_URL ?? "https://orchard.rpc.quai.network"],
+  blockExplorerUrls: ["https://orchard.quaiscan.io"],
+};
+
+const STORAGE_KEY = "quaimerchant:active-wallet";
+
+interface UnknownProvider {
+  isMetaMask?: boolean;
+  isRabby?: boolean;
+  isCoinbaseWallet?: boolean;
+  isCoinbaseExtension?: boolean;
+  isBraveWallet?: boolean;
+  isOkxWallet?: boolean;
+  isBitKeep?: boolean;
+  isBitgetWallet?: boolean;
+  isTrust?: boolean;
+  isFrame?: boolean;
+  uuid?: string;
+}
+
+declare global {
+  interface Window {
+    pelagus?: Eip1193Provider;
+    quai?: Eip1193Provider;
+    ethereum?: Eip1193Provider & { providers?: Eip1193Provider[] };
+  }
+}
+
+function identify(
+  provider: Eip1193Provider,
+  fromPelagusSlot: boolean,
+): { name: string; brand: WalletBrand } {
+  if (fromPelagusSlot) return { name: "Pelagus", brand: "pelagus" };
+  const p = provider as UnknownProvider;
+  if (p.isRabby) return { name: "Rabby", brand: "rabby" };
+  if (p.isCoinbaseWallet || p.isCoinbaseExtension)
+    return { name: "Coinbase Wallet", brand: "coinbase" };
+  if (p.isBraveWallet) return { name: "Brave Wallet", brand: "brave" };
+  if (p.isOkxWallet) return { name: "OKX Wallet", brand: "okx" };
+  if (p.isBitKeep || p.isBitgetWallet)
+    return { name: "Bitget Wallet", brand: "bitget" };
+  if (p.isTrust) return { name: "Trust Wallet", brand: "trust" };
+  if (p.isFrame) return { name: "Frame", brand: "frame" };
+  if (p.isMetaMask) return { name: "MetaMask", brand: "metamask" };
+  return { name: "Browser wallet", brand: "generic" };
+}
+
+function providerId(provider: Eip1193Provider): string {
+  const uuid = (provider as UnknownProvider).uuid;
+  if (uuid) return uuid;
+  const name = (provider as { constructor?: { name?: string } }).constructor?.name;
+  return name ?? "provider";
+}
+
+export function detectWallets(): DetectedWallet[] {
+  if (typeof window === "undefined") return [];
+  const seen = new Set<string>();
+  const wallets: DetectedWallet[] = [];
+
+  const push = (
+    provider: Eip1193Provider | undefined,
+    fromPelagusSlot: boolean,
+  ) => {
+    if (!provider) return;
+    const key = providerId(provider);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const { name, brand } = identify(provider, fromPelagusSlot);
+    wallets.push({
+      id: `${brand}:${key}`,
+      name,
+      brand,
+      provider,
+    });
+  };
+
+  push(window.pelagus, true);
+  push(window.quai, false);
+  push(window.ethereum, false);
+
+  const multi = window.ethereum?.providers ?? [];
+  for (const provider of multi) push(provider, false);
+
+  return wallets;
+}
+
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof localStorage !== "undefined";
+}
+
+export function getStoredWalletId(): string | null {
+  if (!isBrowser()) return null;
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function storeWalletId(id: string | null): void {
+  if (!isBrowser()) return;
+  try {
+    if (id) localStorage.setItem(STORAGE_KEY, id);
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // storage unavailable — ignore
+  }
+}
+
+export function getActiveWallet(): DetectedWallet | null {
+  const stored = getStoredWalletId();
+  if (!stored) return null;
+  return detectWallets().find((w) => w.id === stored) ?? null;
+}
+
+/** Asks the wallet for its current chain id (hex). */
+export async function getWalletChainId(
+  provider: Eip1193Provider,
+): Promise<string | null> {
+  try {
+    const chainId = (await provider.request({
+      method: "eth_chainId",
+    })) as string;
+    return chainId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Puts the wallet on the Quai Orchard testnet.
+ * Switches when the chain is already known, otherwise asks the wallet to add it.
+ */
+export async function ensureQuaiNetwork(
+  provider: Eip1193Provider,
+): Promise<"ok" | "unsupported"> {
+  const chainId = await getWalletChainId(provider);
+  if (chainId?.toLowerCase() === QUAI_ORCHARD_CHAIN.chainId.toLowerCase()) {
+    return "ok";
+  }
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: QUAI_ORCHARD_CHAIN.chainId }],
+    });
+    return "ok";
+  } catch (err) {
+    const code = (err as { code?: number })?.code;
+    if (code === 4902 || code === -32603) {
+      try {
+        await provider.request({
+          method: "wallet_addEthereumChain",
+          params: [QUAI_ORCHARD_CHAIN],
+        });
+        return "ok";
+      } catch {
+        return "unsupported";
+      }
+    }
+    if (code === 4001) throw new Error("Network switch declined.");
+    return "unsupported";
+  }
+}
+
+/**
+ * Connects to the chosen wallet and returns the active address.
+ * Validates that the account lives in the Cyprus-1 zone (0x00…).
+ */
+export async function connectWallet(
+  wallet: DetectedWallet,
+): Promise<string> {
+  const accounts = (await wallet.provider.request({
+    method: "quai_requestAccounts",
+  })) as string[];
+  if (!accounts?.length) {
+    throw new Error(`${wallet.name} returned no accounts — unlock it first.`);
+  }
+  const address = accounts[0];
+  const zone = getZoneForAddress(address);
+  if (zone !== "0x00") {
+    throw new Error(
+      `Account is in zone ${zone} — switch to a Cyprus-1 (0x00…) account in ${wallet.name}.`,
+    );
+  }
+  return address;
+}

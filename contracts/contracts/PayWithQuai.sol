@@ -11,28 +11,11 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 /// @title  PayWithQuai
 /// @notice Non-custodial merchant payment router for the "Pay with Quai" checkout system.
-///         A merchant pre-registers an order (expected amount, payout token, optional expiry);
-///         the customer then settles it in a single transaction. The contract verifies the
-///         amount, withholds an optional platform fee, forwards the funds to the merchant,
-///         marks the order settled (blocking double-fulfillment), and emits `PaymentReceived`
-///         for the off-chain relayer to turn into a merchant webhook.
-/// @dev    Funds never rest in the contract — every payment is forwarded within the same
-///         transaction. Orders are keyed by (merchant, orderId) so a griefer cannot
-///         front-register another merchant's order id. See docs §4 (Smart Contract Design).
-///
-///         Quai is sharded: value moves within a single zone. The merchant payout wallet and
-///         `feeRecipient` MUST live in the same zone as this deployment (e.g. all Cyprus-1,
-///         address prefix 0x00) — a plain transfer cannot pay an address in another zone.
-///         Enforce this off-chain (backend/checkout) before registering an order.
-///
-///         UPGRADEABILITY: This is the *implementation* behind a UUPS (ERC-1967) proxy. All
-///         mutable state lives in an ERC-7201 namespaced struct (`_s()`), and the base modules
-///         (Ownable2Step, Pausable, ReentrancyGuard) each use their own namespaced slot, so a
-///         future upgrade can append fields or add modules without ever colliding with existing
-///         storage. When upgrading: NEVER remove or reorder fields in `MainStorage` — only
-///         append. New modules should declare their own erc7201 storage-location namespace.
-///         Upgrades are gated by `_authorizeUpgrade` (owner-only); in production the owner is a
-///         TimelockController controlled by a multisig.
+///         Merchants pre-register orders; customers settle them in a single transaction. Funds
+///         are forwarded immediately, and orders are marked settled to block double-fulfillment.
+/// @dev    UUPS implementation behind an ERC-1967 proxy. State lives in an ERC-7201 namespaced
+///         struct (`_s()`); it is append-only across upgrades — never remove or reorder fields.
+///         Quai is sharded: payout wallets must be in the same zone as this deployment.
 contract PayWithQuai is
     Initializable,
     UUPSUpgradeable,
@@ -42,34 +25,38 @@ contract PayWithQuai is
 {
     using SafeERC20 for IERC20;
 
-    /// @notice Sentinel `token` value meaning the order is payable in native QUAI.
+    /// @notice Sentinel token value: the order is payable in native QUAI.
     address public constant NATIVE = address(0);
 
-    /// @notice Hard cap on the platform fee (basis points). 500 = 5%. Owner cannot exceed it.
+    /// @notice Maximum platform fee in basis points (500 = 5%).
     uint96 public constant MAX_FEE_BPS = 500;
+
+    /// @notice Delay before a settled order may be purged, giving the relayer time to index it.
+    uint256 public constant PURGE_DELAY = 1 days;
 
     /// @dev Basis-points denominator (100% = 10_000 bps).
     uint256 private constant BPS_DENOMINATOR = 10_000;
 
-    // Fields are ordered so `merchant`, `settled`, `exists` and `feeBps` share one storage slot
-    // (160 + 8 + 8 + 16 = 192 bits).
+    // merchant(160) + settled(8) + exists(8) + feeBps(16) = 192 bits, packed in one slot.
     struct Order {
-        address merchant; // payout wallet (also the registrar)
-        bool settled;     // flipped true on payment — blocks double-fulfillment
-        bool exists;      // distinguishes a registered order from an empty slot
-        uint16 feeBps;    // platform fee locked in at registration time (<= MAX_FEE_BPS)
-        address token;    // ERC-20 token address, or NATIVE (address(0)) for native QUAI
-        uint256 amount;   // exact expected amount, in the token's smallest unit
-        uint256 expiry;   // unix time after which the order can no longer be paid; 0 = never
+        address merchant;     // payout wallet (also the registrar)
+        bool settled;         // set on payment — blocks double-fulfillment
+        bool exists;          // distinguishes a registered order from an empty slot
+        uint16 feeBps;        // fee locked in at registration time
+        address token;        // ERC-20 address, or NATIVE for native QUAI
+        uint256 amount;       // exact expected amount, in the token's smallest unit
+        uint256 expiry;       // unix time after which the order can't be paid; 0 = never
+        address feeRecipient; // fee destination, locked in at registration time
+        uint256 settledAt;    // unix time the order was paid; 0 while unpaid
     }
 
     /// @custom:storage-location erc7201:paywithquai.main
-    /// @dev All mutable state of the router. Append-only across upgrades — never remove/reorder.
+    /// @dev All mutable state. Append-only across upgrades — never remove/reorder.
     struct MainStorage {
-        mapping(bytes32 => Order) orders;      // keyed by orderKey(merchant, orderId)
-        mapping(address => bool) acceptedToken; // tokens orders may be priced in (0 = native QUAI)
+        mapping(bytes32 => Order) orders;       // keyed by orderKey(merchant, orderId)
+        mapping(address => bool) acceptedToken; // tokens orders may be priced in
         address feeRecipient;                   // receives the platform fee
-        uint96 feeBps;                          // current platform fee in bps; always <= MAX_FEE_BPS
+        uint96 feeBps;                          // current platform fee in bps
     }
 
     // keccak256(abi.encode(uint256(keccak256("paywithquai.main")) - 1)) & ~bytes32(uint256(0xff))
@@ -88,14 +75,17 @@ contract PayWithQuai is
         address token,
         uint256 amount,
         uint256 expiry,
-        uint16 feeBps
+        uint16 feeBps,
+        address feeRecipient
     );
 
     event OrderCancelled(address indexed merchant, bytes32 indexed orderId);
 
-    /// @notice Emitted on successful settlement. Mirrors the structure the relayer expects (docs §4.3).
-    ///         `token` is included so the relayer can act on the event without a follow-up read
-    ///         (address(0) = native QUAI). `amount` is the gross figure the payer sent.
+    /// @notice Emitted when a settled order is purged after the safety window; the id is reusable.
+    event OrderPurged(address indexed merchant, bytes32 indexed orderId);
+
+    /// @notice Emitted on successful settlement. `token` is address(0) for native QUAI;
+    ///         `amount` is the gross figure the payer sent.
     event PaymentReceived(
         address indexed merchant,
         bytes32 indexed orderId,
@@ -111,14 +101,15 @@ contract PayWithQuai is
     event FeeConfigUpdated(uint96 feeBps, address feeRecipient);
     event AcceptedTokenUpdated(address indexed token, bool accepted);
 
-    /// @notice Emitted when the owner sweeps funds that were sent to the contract outside the
-    ///         payment flow (stray ERC-20 transfers, or QUAI force-sent via selfdestruct).
+    /// @notice Emitted when the owner sweeps stray funds from the contract.
     event TokensRescued(address indexed token, address indexed to, uint256 amount);
 
     error OrderAlreadyExists();
     error OrderNotFound();
     error OrderAlreadySettled();
+    error OrderNotSettled();
     error OrderExpired();
+    error PurgeDelayNotElapsed();
     error InvalidExpiry();
     error ZeroAmount();
     error TokenNotAccepted();
@@ -128,18 +119,16 @@ contract PayWithQuai is
     error ZeroFeeRecipient();
     error ZeroAddress();
     error NativeTransferFailed();
+    error ReceiveRejected();
 
-    /// @dev Implementation contract is never initialized directly — only the proxy is. Locking
-    ///      the implementation's initializers prevents a stray `initialize` on the logic contract.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    /// @notice Proxy initializer (replaces the constructor). Callable exactly once, on the proxy.
     /// @param feeRecipient_ address to receive platform fees (must be non-zero)
     /// @param feeBps_       initial platform fee in basis points (must be <= MAX_FEE_BPS)
-    /// @param owner_        initial owner (admin key; hand this to a timelock+multisig in prod)
+    /// @param owner_        initial owner
     function initialize(address feeRecipient_, uint96 feeBps_, address owner_) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
@@ -158,7 +147,7 @@ contract PayWithQuai is
         return _s().feeRecipient;
     }
 
-    /// @notice Platform fee in basis points (1 bps = 0.01%). Always <= MAX_FEE_BPS.
+    /// @notice Platform fee in basis points (1 bps = 0.01%).
     function feeBps() external view returns (uint96) {
         return _s().feeBps;
     }
@@ -188,12 +177,12 @@ contract PayWithQuai is
     // --------------------------------------------------------------------- //
 
     /// @notice Merchant pre-registers an order it expects a customer to pay.
-    /// @dev    `msg.sender` is recorded as both the merchant identity and the payout wallet,
-    ///         which is what makes the (merchant, orderId) key unforgeable by third parties.
+    /// @dev    `msg.sender` is recorded as merchant and payout wallet, making the
+    ///         (merchant, orderId) key unforgeable by third parties.
     /// @param orderId unique id generated by the merchant backend
-    /// @param token   ERC-20 token to be paid, or NATIVE (address(0)) for native QUAI; must be accepted
-    /// @param amount  exact amount owed, in the token's smallest unit (must be non-zero)
-    /// @param expiry  unix time after which the order can no longer be paid; 0 = never expires
+    /// @param token   ERC-20 token, or NATIVE for native QUAI; must be accepted
+    /// @param amount  exact amount owed, in the token's smallest unit
+    /// @param expiry  unix time after which the order can't be paid; 0 = never
     function registerOrder(
         bytes32 orderId,
         address token,
@@ -208,10 +197,11 @@ contract PayWithQuai is
         bytes32 key = orderKey(msg.sender, orderId);
         if ($.orders[key].exists) revert OrderAlreadyExists();
 
-        // Lock the current fee into the order. `feeBps` is always <= MAX_FEE_BPS (500), so the
-        // uint96 -> uint16 narrowing cannot truncate. This fixes the merchant's net proceeds at
-        // registration time — a later setFeeConfig cannot retroactively change this order.
+        // Lock fee rate and recipient at registration. feeBps is always <= MAX_FEE_BPS (500),
+        // so the uint96 -> uint16 narrowing cannot truncate; a later setFeeConfig can't
+        // retroactively change this order.
         uint16 lockedFeeBps = uint16($.feeBps);
+        address lockedFeeRecipient = $.feeRecipient; // guaranteed non-zero by _setFeeConfig
 
         $.orders[key] = Order({
             merchant: msg.sender,
@@ -220,13 +210,15 @@ contract PayWithQuai is
             feeBps: lockedFeeBps,
             token: token,
             amount: amount,
-            expiry: expiry
+            expiry: expiry,
+            feeRecipient: lockedFeeRecipient,
+            settledAt: 0
         });
-        emit OrderRegistered(msg.sender, orderId, token, amount, expiry, lockedFeeBps);
+        emit OrderRegistered(msg.sender, orderId, token, amount, expiry, lockedFeeBps, lockedFeeRecipient);
     }
 
     /// @notice Merchant cancels its own unpaid order, freeing the order id for reuse.
-    /// @dev    Allowed even while paused so merchants can always clean up reservations.
+    /// @dev    Allowed while paused so merchants can always clean up reservations.
     function cancelOrder(bytes32 orderId) external {
         bytes32 key = orderKey(msg.sender, orderId);
         Order storage o = _s().orders[key];
@@ -236,28 +228,40 @@ contract PayWithQuai is
         emit OrderCancelled(msg.sender, orderId);
     }
 
+    /// @notice Merchant frees the storage of a paid order after PURGE_DELAY; the id is reusable.
+    function purgeSettledOrder(bytes32 orderId) external {
+        bytes32 key = orderKey(msg.sender, orderId);
+        Order storage o = _s().orders[key];
+        if (!o.exists) revert OrderNotFound();
+        if (!o.settled) revert OrderNotSettled();
+        if (block.timestamp < o.settledAt + PURGE_DELAY) revert PurgeDelayNotElapsed();
+        delete _s().orders[key];
+        emit OrderPurged(msg.sender, orderId);
+    }
+
     // --------------------------------------------------------------------- //
     //                          Customer: payment                            //
     // --------------------------------------------------------------------- //
 
-    /// @notice Settle an ERC-20 order. Caller must first `approve` this contract for `amount`.
+    /// @notice Settle an ERC-20 order. Caller must first approve this contract for `amount`.
     /// @dev    Checks -> effects (mark settled) -> interactions (pull & forward funds).
     function payOrder(address merchant, bytes32 orderId) external nonReentrant whenNotPaused {
         MainStorage storage $ = _s();
         Order storage o = $.orders[orderKey(merchant, orderId)];
-        _requireOpenOrder(o);
+        if (!o.exists) revert OrderNotFound();
         if (o.token == NATIVE) revert WrongPaymentPath();
+        _requireOpenOrder(o);
 
         o.settled = true; // effects before interactions
+        o.settledAt = block.timestamp;
 
         uint256 amount = o.amount;
         address token = o.token;
-        uint256 fee = (amount * o.feeBps) / BPS_DENOMINATOR; // fee locked at registration
-        address feeRecipient_ = $.feeRecipient;
+        uint256 fee = (amount * o.feeBps) / BPS_DENOMINATOR;
 
         if (fee > 0) {
-            IERC20(token).safeTransferFrom(msg.sender, feeRecipient_, fee);
-            emit FeePaid(orderId, token, fee, feeRecipient_);
+            IERC20(token).safeTransferFrom(msg.sender, o.feeRecipient, fee);
+            emit FeePaid(orderId, token, fee, o.feeRecipient);
         }
         IERC20(token).safeTransferFrom(msg.sender, o.merchant, amount - fee);
 
@@ -268,27 +272,28 @@ contract PayWithQuai is
     function payOrderNative(address merchant, bytes32 orderId) external payable nonReentrant whenNotPaused {
         MainStorage storage $ = _s();
         Order storage o = $.orders[orderKey(merchant, orderId)];
-        _requireOpenOrder(o);
+        if (!o.exists) revert OrderNotFound();
         if (o.token != NATIVE) revert WrongPaymentPath();
+        _requireOpenOrder(o);
         if (msg.value != o.amount) revert IncorrectNativeValue();
 
         o.settled = true; // effects before interactions
+        o.settledAt = block.timestamp;
 
         uint256 amount = o.amount;
-        uint256 fee = (amount * o.feeBps) / BPS_DENOMINATOR; // fee locked at registration
+        uint256 fee = (amount * o.feeBps) / BPS_DENOMINATOR;
 
         if (fee > 0) {
-            _sendNative($.feeRecipient, fee);
-            emit FeePaid(orderId, NATIVE, fee, $.feeRecipient);
+            _sendNative(o.feeRecipient, fee);
+            emit FeePaid(orderId, NATIVE, fee, o.feeRecipient);
         }
         _sendNative(o.merchant, amount - fee);
 
         emit PaymentReceived(o.merchant, orderId, msg.sender, NATIVE, amount, block.timestamp);
     }
 
-    /// @dev Requires an order to exist, be unpaid, and be unexpired. Pure check, no state change.
+    /// @dev Requires the order to be unpaid and unexpired. Pure check, no state change.
     function _requireOpenOrder(Order storage o) private view {
-        if (!o.exists) revert OrderNotFound();
         if (o.settled) revert OrderAlreadySettled();
         if (o.expiry != 0 && block.timestamp > o.expiry) revert OrderExpired();
     }
@@ -303,25 +308,23 @@ contract PayWithQuai is
     // --------------------------------------------------------------------- //
 
     /// @notice Allow or disallow pricing orders in `token` (address(0) = native QUAI).
+    /// @dev    Only allowlist standard, well-behaved ERC-20s: fee-on-transfer or rebasing tokens
+    ///         would under-deliver to the merchant. Disabling a token blocks new registrations
+    ///         only — existing orders remain payable; use `pause()` to halt settlement.
     function setTokenAccepted(address token, bool accepted) external onlyOwner {
         _s().acceptedToken[token] = accepted;
         emit AcceptedTokenUpdated(token, accepted);
     }
 
     /// @notice Update the platform fee and recipient. Fee is capped at MAX_FEE_BPS.
-    /// @dev    Only affects orders registered *after* this call — existing orders keep the fee
-    ///         they locked in at registration. `feeRecipient_` receives native QUAI on the
-    ///         native path via a plain `.call`, so it MUST be an EOA or a contract that accepts
-    ///         value without reverting; a reverting recipient would block every native payment.
+    /// @dev    Only affects orders registered after this call. `feeRecipient_` must accept
+    ///         native QUAI without reverting, or it would block every native payment.
     function setFeeConfig(uint96 feeBps_, address feeRecipient_) external onlyOwner {
         _setFeeConfig(feeBps_, feeRecipient_);
     }
 
-    /// @notice Sweep funds that reached the contract outside the payment flow. The router never
-    ///         holds funds during normal operation (payments are forwarded in the same tx), so a
-    ///         non-zero balance can only come from a stray ERC-20 `transfer` or QUAI force-sent
-    ///         via `selfdestruct`. This lets the owner recover them instead of stranding them.
-    /// @dev    `token == NATIVE` (address(0)) sweeps native QUAI; otherwise it sweeps the ERC-20.
+    /// @notice Sweep funds that reached the contract outside the payment flow.
+    /// @dev    `token == NATIVE` (address(0)) sweeps native QUAI; otherwise the ERC-20.
     function rescueTokens(address token, address to, uint256 amount) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();
         if (token == NATIVE) {
@@ -351,11 +354,11 @@ contract PayWithQuai is
         emit FeeConfigUpdated(feeBps_, feeRecipient_);
     }
 
-    /// @dev UUPS upgrade authorization. Only the owner (a timelock+multisig in prod) may upgrade.
+    /// @dev UUPS upgrade authorization, owner-only.
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     /// @dev Reject stray native transfers — payments must go through payOrderNative.
     receive() external payable {
-        revert("PayWithQuai: use payOrderNative");
+        revert ReceiveRejected();
     }
 }

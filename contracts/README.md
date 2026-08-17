@@ -103,7 +103,7 @@ npx hardhat test        # full suite on the in-process EVM — no node or funds 
 ## Deploy to Quai testnet
 
 ```bash
-cp .env.dist .env       # fill in CYPRUS1_PK (fund it from the Quai faucet); Orchard RPC is preset
+cp .env.example .env       # fill in CYPRUS1_PK (fund it from the Quai faucet); Orchard RPC is preset
 npm run deploy:testnet  # deploys MockStablecoin + impl + proxy (+ Timelock if MULTISIG_ADDR set)
 npm run demo:testnet    # runs the full register → approve → pay → event loop against the proxy
 ```

@@ -1,0 +1,15 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Local data & secrets
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+.env
+.env.local
+
+# Logs
+*.log

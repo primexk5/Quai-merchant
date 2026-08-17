@@ -42,6 +42,7 @@ async function main() {
 
   const amount = quais.parseUnits('25', 6); // 25.00 mUSDQ
   const orderId = quais.id(`ord_demo_${Date.now()}`); // bytes32
+  const ZERO = '0x0000000000000000000000000000000000000000';
 
   console.log('\n1) Minting 25 mUSDQ to the payer...');
   await (await token.mint(wallet.address, amount)).wait();
@@ -79,6 +80,41 @@ async function main() {
   const settled = await pay.isSettled(wallet.address, orderId);
   console.log(`\nOrder settled on-chain: ${settled}`);
   console.log('The relayer would now POST a "payment.confirmed" webhook to the merchant.');
+
+  // --- Native QUAI round: same loop, settlement in QUAI via msg.value ---
+  console.log('\n--- Native QUAI round ---');
+  const nativeAmount = quais.parseQuai('0.05'); // 0.05 QUAI
+  const nativeOrderId = quais.id(`ord_native_${Date.now()}`);
+
+  console.log('1) Merchant registers a native order...');
+  await (await pay.registerOrder(nativeOrderId, ZERO, nativeAmount, 0)).wait();
+
+  console.log('2) Payer settles it with payOrderNative...');
+  const nativeTx = await pay.payOrderNative(wallet.address, nativeOrderId, {
+    value: nativeAmount,
+  });
+  const nativeReceipt = await nativeTx.wait();
+  console.log(`   tx: ${nativeReceipt.hash}`);
+
+  for (const log of nativeReceipt.logs) {
+    let parsed;
+    try {
+      parsed = pay.interface.parseLog(log);
+    } catch (_) {
+      continue;
+    }
+    if (parsed && parsed.name === 'PaymentReceived') {
+      console.log('\n✅ PaymentReceived (native):');
+      console.log(`   merchant:  ${parsed.args.merchant}`);
+      console.log(`   orderId:   ${parsed.args.orderId}`);
+      console.log(`   payer:     ${parsed.args.payer}`);
+      console.log(`   token:     ${parsed.args.token} (0x0..0 = native QUAI)`);
+      console.log(`   amount:    ${quais.formatQuai(parsed.args.amount)} QUAI`);
+    }
+  }
+
+  const nativeSettled = await pay.isSettled(wallet.address, nativeOrderId);
+  console.log(`\nNative order settled on-chain: ${nativeSettled}`);
 }
 
 main().catch((err) => {

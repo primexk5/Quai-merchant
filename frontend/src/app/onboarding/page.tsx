@@ -1,56 +1,104 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Check, Wallet } from "lucide-react";
+import { ArrowRight, Check, Copy, Loader2, Wallet } from "lucide-react";
 import { useState } from "react";
+import { Logo } from "@/components/logo";
+import { WalletSelector } from "@/components/ui/wallet-selector";
+import { ADMIN_API_KEY, BACKEND_URL } from "@/lib/payment";
 
 const steps = ["Business", "Wallet", "Complete"];
 
+interface OnboardedMerchant {
+  merchantId: string;
+  address: string;
+  name: string;
+  webhookUrl: string;
+  webhookSecret: string;
+}
+
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
+  const [name, setName] = useState("Quai Store");
+  const [webhookUrl, setWebhookUrl] = useState(
+    "http://localhost:9000/webhook",
+  );
+  const [address, setAddress] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
+  const [merchant, setMerchant] = useState<OnboardedMerchant | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const complete = async () => {
+    if (!address) return;
+    setRegistering(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/v1/merchants`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${ADMIN_API_KEY}`,
+        },
+        body: JSON.stringify({ address, name, webhookUrl }),
+      });
+      if (!res.ok) throw new Error(`registration failed (${res.status})`);
+      setMerchant((await res.json()) as OnboardedMerchant);
+      setStep(2);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const copySecret = async () => {
+    if (!merchant) return;
+    try {
+      await navigator.clipboard.writeText(merchant.webhookSecret);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // clipboard unavailable — ignore
+    }
+  };
 
   return (
-    <main className="min-h-screen bg-[#07090d] px-5 py-8 text-white">
+    <main className="min-h-screen bg-[#0c1017] px-5 py-8 text-white">
       <div className="mx-auto max-w-2xl">
-        <Link
-          href="/"
-          className="flex w-fit items-center gap-2 text-sm font-semibold"
-        >
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#38bdf8] text-[#061018]">
-            Q
-          </span>
-          PAY WITH <span className="text-[#38bdf8]">QUAI</span>
-        </Link>
+        <header className="flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <Logo />
+            <span className="text-sm font-semibold tracking-tight">
+              QUAI<span className="text-[#38bdf8]">Merchant</span>
+            </span>
+          </Link>
 
-        <div className="mt-14">
           <p className="text-sm text-[#38bdf8]">Merchant onboarding</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            Start accepting Quai payments.
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-[#667085]">
-            Set up your merchant profile and connect a settlement wallet.
-          </p>
-        </div>
+        </header>
 
-        <div className="mt-8 flex items-center">
-          {steps.map((item, index) => (
-            <div key={item} className="flex flex-1 items-center">
-              <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                  index <= step
-                    ? "bg-[#38bdf8] text-[#061018]"
-                    : "border border-white/10 text-[#667085]"
-                }`}
-              >
-                {index < step ? <Check size={14} /> : index + 1}
+        <div className="mx-auto mt-10 flex max-w-md items-center">
+          {steps.map((label, index) => (
+            <div key={label} className="flex flex-1 items-center last:flex-none">
+              <div className="flex items-center gap-2">
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                    index < step
+                      ? "bg-[#38bdf8] text-[#061018]"
+                      : index === step
+                        ? "border border-[#38bdf8]/40 text-white"
+                        : "border border-white/[0.07] text-[#8b93a7]"
+                  }`}
+                >
+                  {index < step ? <Check size={13} /> : index + 1}
+                </div>
+                <span className="hidden text-xs text-[#8b93a7] sm:block">
+                  {label}
+                </span>
               </div>
 
-              <span className="ml-2 hidden text-xs text-[#8b93a7] sm:block">
-                {item}
-              </span>
-
               {index < steps.length - 1 && (
-                <div className="mx-3 h-px flex-1 bg-white/[0.08]" />
+                <div className="mx-3 h-px flex-1 bg-[#0c1017]/[0.04]" />
               )}
             </div>
           ))}
@@ -59,29 +107,46 @@ export default function OnboardingPage() {
         <div className="mt-10 rounded-2xl border border-white/[0.07] bg-[#0c1017] p-6 sm:p-8">
           {step === 0 && (
             <>
-              <h2 className="text-xl font-semibold">Tell us about your business</h2>
-              <p className="mt-1 text-sm text-[#667085]">
-                This information will appear on your checkout.
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
+                <Wallet size={21} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-semibold">
+                Tell us about your business
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-[#8b93a7]">
+                Used on the checkout and in the merchant dashboard.
               </p>
 
               <div className="mt-7 space-y-5">
-                <label className="block text-sm">
-                  <span className="mb-2 block text-[#8b93a7]">
+                <div>
+                  <label className="mb-2 block text-sm text-[#8b93a7]">
                     Business name
-                  </span>
+                  </label>
                   <input
-                    placeholder="e.g. Acme Store"
-                    className="h-11 w-full rounded-xl border border-white/[0.08] bg-[#080b10] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Quai Store"
+                    className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
-                </label>
+                </div>
 
-                <label className="block text-sm">
-                  <span className="mb-2 block text-[#8b93a7]">Website</span>
+                <div>
+                  <label className="mb-2 block text-sm text-[#8b93a7]">
+                    Webhook URL
+                  </label>
                   <input
-                    placeholder="https://example.com"
-                    className="h-11 w-full rounded-xl border border-white/[0.08] bg-[#080b10] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    placeholder="https://api.example.com/webhooks/quai"
+                    className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
-                </label>
+                  <span className="mt-2 block text-xs text-[#4f5868]">
+                    The relayer POSTs signed <code>payment.confirmed</code>{" "}
+                    events here. For local testing use{" "}
+                    <code>http://localhost:9000/webhook</code>.
+                  </span>
+                </div>
               </div>
             </>
           )}
@@ -95,28 +160,71 @@ export default function OnboardingPage() {
               <h2 className="mt-5 text-xl font-semibold">
                 Connect your settlement wallet
               </h2>
-              <p className="mt-1 text-sm leading-6 text-[#667085]">
+              <p className="mt-1 text-sm leading-6 text-[#8b93a7]">
                 Your wallet receives payments after they settle on the Quai
                 network.
               </p>
 
-              <button className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-3 text-sm font-medium hover:bg-white/[0.05]">
-                Connect wallet
-                <ArrowRight size={15} />
-              </button>
+              {address ? (
+                <div className="mt-7 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-4 py-3">
+                  <p className="text-xs text-[#8b93a7]">Connected (Cyprus-1)</p>
+                  <p className="mt-1 break-all font-mono text-xs text-emerald-300">
+                    {address}
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-7">
+                  <WalletSelector
+                    connectedAddress={null}
+                    onConnected={(addr) => {
+                      setError(null);
+                      setAddress(addr);
+                    }}
+                    label="Connect settlement wallet"
+                  />
+                </div>
+              )}
             </>
           )}
 
-          {step === 2 && (
-            <div className="py-5 text-center">
+          {step === 2 && merchant && (
+            <div className="py-2 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300">
                 <Check size={24} />
               </div>
 
               <h2 className="mt-5 text-xl font-semibold">You&apos;re ready.</h2>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#667085]">
-                Your merchant account is ready to accept payments through Quai.
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#8b93a7]">
+                {merchant.name} is registered and will receive{" "}
+                <code>payment.confirmed</code> webhooks at{" "}
+                <span className="break-all text-[#8b93a7]">
+                  {merchant.webhookUrl}
+                </span>
+                .
               </p>
+
+              <div className="mx-auto mt-6 max-w-md rounded-2xl border border-white/[0.07] bg-[#0c1017] p-4 text-left">
+                <p className="text-xs text-[#8b93a7]">Merchant ID</p>
+                <p className="mt-1 break-all font-mono text-xs text-white">
+                  {merchant.merchantId}
+                </p>
+
+                <p className="mt-4 text-xs text-[#8b93a7]">
+                  Webhook secret (shown once — store it)
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <p className="flex-1 break-all font-mono text-xs text-[#e0a95e]">
+                    {merchant.webhookSecret}
+                  </p>
+                  <button
+                    onClick={copySecret}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/[0.07] px-2 py-1 text-xs text-[#8b93a7] hover:text-[#061018]"
+                  >
+                    <Copy size={12} />
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
 
               <Link
                 href="/dashboard"
@@ -128,15 +236,36 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {error && (
+            <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
           {step < 2 && (
             <div className="mt-8 flex justify-end">
-              <button
-                onClick={() => setStep((current) => current + 1)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
-              >
-                Continue
-                <ArrowRight size={15} />
-              </button>
+              {step === 0 ? (
+                <button
+                  onClick={() => setStep(1)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
+                >
+                  Continue
+                  <ArrowRight size={15} />
+                </button>
+              ) : (
+                <button
+                  onClick={complete}
+                  disabled={!address || registering}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
+                >
+                  {registering ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <Check size={15} />
+                  )}
+                  {registering ? "Registering…" : "Complete setup"}
+                </button>
+              )}
             </div>
           )}
         </div>
