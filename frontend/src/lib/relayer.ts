@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ADMIN_API_KEY, backendFetch } from "@/lib/payment";
+import { getStoredToken } from "@/lib/auth";
 
 export interface DeliveryData {
   merchant: string;
@@ -38,9 +39,15 @@ export interface Merchant {
   createdAt: number;
 }
 
+/** Bearer token for admin calls: the session token when logged in, else the demo admin key. */
+function adminHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return { authorization: `Bearer ${token ?? ADMIN_API_KEY}` };
+}
+
 async function adminGet<T>(path: string): Promise<T> {
   const res = await backendFetch(path, {
-    headers: { authorization: `Bearer ${ADMIN_API_KEY}` },
+    headers: adminHeaders(),
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`backend error ${res.status}`);
@@ -51,7 +58,7 @@ export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await backendFetch(path, {
     method: "PATCH",
     headers: {
-      authorization: `Bearer ${ADMIN_API_KEY}`,
+      ...adminHeaders(),
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
@@ -64,7 +71,9 @@ export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** Live deliveries + merchants from the relayer backend, auto-refreshing. */
+/** Live deliveries + merchants from the relayer backend, auto-refreshing.
+ *  Logged-in merchants see only their own data (via /v1/me); without a session the
+ *  demo admin key is used to read everything. */
 export function useRelayerData(intervalMs = 8000) {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -73,12 +82,21 @@ export function useRelayerData(intervalMs = 8000) {
 
   const refresh = useCallback(async () => {
     try {
-      const [d, m] = await Promise.all([
-        adminGet<{ deliveries: Delivery[] }>("/v1/deliveries"),
-        adminGet<{ merchants: Merchant[] }>("/v1/merchants"),
-      ]);
-      setDeliveries(d.deliveries);
-      setMerchants(m.merchants);
+      if (getStoredToken()) {
+        const [me, d] = await Promise.all([
+          adminGet<Merchant>("/v1/me"),
+          adminGet<{ deliveries: Delivery[] }>("/v1/me/deliveries"),
+        ]);
+        setDeliveries(d.deliveries);
+        setMerchants([me]);
+      } else {
+        const [d, m] = await Promise.all([
+          adminGet<{ deliveries: Delivery[] }>("/v1/deliveries"),
+          adminGet<{ merchants: Merchant[] }>("/v1/merchants"),
+        ]);
+        setDeliveries(d.deliveries);
+        setMerchants(m.merchants);
+      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);

@@ -1,4 +1,4 @@
-import type { Merchant, WebhookDelivery } from '../types.js';
+import type { Merchant, Session, WebhookDelivery } from '../types.js';
 
 /**
  * Persistence boundary for the relayer. The default implementation ({@link JsonStore}) is a
@@ -33,6 +33,11 @@ export interface Store {
   /** Deliveries in `pending` status whose nextAttemptAt <= now, oldest first. */
   getDueDeliveries(now: number, limit: number): WebhookDelivery[];
   listDeliveries(limit: number): WebhookDelivery[];
+
+  // --- auth sessions (opaque bearer tokens, persisted across restarts) ---
+  createSession(s: Session): void;
+  getSession(token: string): Session | undefined;
+  deleteSession(token: string): void;
 
   close(): void;
 }

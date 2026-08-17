@@ -36,6 +36,15 @@ export interface Merchant {
   createdAt: number;
 }
 
+/** An opaque bearer-token session issued after a wallet-signature login. */
+export interface Session {
+  token: string; // random opaque token, the only thing the client stores
+  merchantId: string;
+  address: string; // lowercased merchant address the session belongs to
+  createdAt: number; // unix ms
+  expiresAt: number; // unix ms — past this, the session is invalid
+}
+
 export type WebhookEventType = 'payment.confirmed';
 
 /** The JSON body POSTed to a merchant's webhook endpoint. */

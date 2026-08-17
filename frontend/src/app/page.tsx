@@ -526,7 +526,7 @@ function Navbar() {
 
         <div className="hidden items-center gap-3 md:flex">
           <Link
-            href="/dashboard"
+            href="/login"
             className="rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:text-white"
           >
             Merchant login

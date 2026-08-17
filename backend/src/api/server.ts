@@ -1,11 +1,11 @@
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { timingSafeEqual } from 'node:crypto';
-import { getAddress } from 'quais';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { getAddress, verifyMessage } from 'quais';
 import { z } from 'zod';
 import type { Store } from '../store/index.js';
 import type { QuaiClient } from '../chain/client.js';
 import type { Config } from '../config.js';
-import type { Merchant } from '../types.js';
+import type { Merchant, Session } from '../types.js';
 import { newMerchantId, newWebhookSecret } from '../util/ids.js';
 import { assertSafeWebhookUrl, UnsafeWebhookUrlError } from '../webhooks/urlGuard.js';
 import { rateLimit } from './rateLimit.js';
@@ -19,12 +19,18 @@ const logger = log('api');
  * Builds the HTTP API:
  *   GET  /health                          liveness + indexer cursor
  *   GET  /v1/orders/:merchant/:orderId    order + settlement status (on-chain + local)
+ *   POST /v1/auth/login                   wallet-signature login -> bearer session token
+ *   POST /v1/auth/logout                  invalidate the session token
+ *   GET  /v1/me                           (session) the logged-in merchant's profile
+ *   PATCH /v1/me                          (session) update own name/webhookUrl
+ *   GET  /v1/me/deliveries                (session) own webhook deliveries
  *   GET  /v1/merchants                     (admin) list merchants
  *   POST /v1/merchants                     (admin) onboard a merchant -> returns webhook secret ONCE
  *   PATCH /v1/merchants/:address           (admin) update name/webhookUrl/active without rotating secret
  *   GET  /v1/deliveries                    (admin) recent webhook deliveries (debugging)
  *   POST /v1/deliveries/:id/retry          (admin) re-queue a failed/skipped delivery
- * Admin routes require `Authorization: Bearer <ADMIN_API_KEY>`.
+ * Admin routes require `Authorization: Bearer <ADMIN_API_KEY>`. Self-service routes require a
+ * session token issued by POST /v1/auth/login.
  */
 export function createServer(store: Store, client: QuaiClient, cfg: Config): Express {
   const app = express();
@@ -76,6 +82,133 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       webhook: delivery ? { status: delivery.status, attempts: delivery.attempts } : null,
     });
   }));
+
+  // --- merchant auth (wallet-signature login) ---
+  // Login message lifetime: the client signs "quai-merchant-login:<address>:<unixSeconds>". We
+  // accept it within a 5-minute window — enough for the user to review/sign, short enough that a
+  // captured signature can't be replayed indefinitely. Stateless: no challenge store to clean up.
+  const LOGIN_WINDOW_S = 300;
+  // Session lifetime: 24h. Sessions are opaque random tokens persisted in the store.
+  const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+  const LoginSchema = z.object({
+    address: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 20-byte hex address'),
+    message: z.string(),
+    signature: z.string(),
+  });
+
+  app.post('/v1/auth/login', (req, res) => {
+    const parsed = LoginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
+    }
+    const { message, signature } = parsed.data;
+
+    let address: string;
+    try {
+      address = getAddress(parsed.data.address);
+    } catch {
+      return res.status(400).json({ error: 'address fails checksum validation' });
+    }
+
+    // The signed message must be the exact challenge for THIS address, freshly issued.
+    const match = /^quai-merchant-login:(0x[0-9a-fA-F]{40}):(\d+)$/.exec(message);
+    const signedAddress = match?.[1];
+    if (!match || !signedAddress || signedAddress.toLowerCase() !== address.toLowerCase()) {
+      return res.status(400).json({ error: 'login message does not match the address' });
+    }
+    const messageTs = Number(match[2]);
+    if (Number.isNaN(messageTs) || Math.abs(Date.now() / 1000 - messageTs) > LOGIN_WINDOW_S) {
+      return res.status(401).json({ error: 'login message expired — sign a fresh one' });
+    }
+
+    // The signature proves ownership of the wallet: the recovered signer must equal the address
+    // the merchant claims. verifyMessage throws on malformed input -> 400, not a 500.
+    let recovered: string;
+    try {
+      recovered = verifyMessage(message, signature);
+    } catch {
+      return res.status(400).json({ error: 'invalid signature' });
+    }
+    if (recovered.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({ error: 'signature does not match this address' });
+    }
+
+    const merchant = store.getMerchantByAddress(address);
+    if (!merchant) {
+      return res.status(404).json({ error: 'no merchant registered for this address — complete onboarding first' });
+    }
+    if (!merchant.active) {
+      return res.status(403).json({ error: 'merchant account is disabled' });
+    }
+
+    const now = Date.now();
+    const token = randomBytes(32).toString('hex');
+    store.createSession({
+      token,
+      merchantId: merchant.merchantId,
+      address: merchant.address,
+      createdAt: now,
+      expiresAt: now + SESSION_TTL_MS,
+    });
+    logger.info({ merchantId: merchant.merchantId, address }, 'merchant logged in');
+    res.json({ token, expiresAt: now + SESSION_TTL_MS, merchant: publicMerchant(merchant) });
+  });
+
+  // Session-protected self-service routes. requireSession is applied per-route (NOT as a blanket
+  // router middleware) so requests to the admin routes below still reach their own auth check.
+  const auth = requireSession(store);
+
+  app.post('/v1/auth/logout', auth, (req, res) => {
+    const token = bearerToken(req);
+    if (token) store.deleteSession(token);
+    res.sendStatus(204);
+  });
+
+  app.get('/v1/me', auth, (req, res) => {
+    const session = res.locals.session as Session;
+    const merchant = store.getMerchantById(session.merchantId);
+    if (!merchant) return res.status(404).json({ error: 'merchant not found' });
+    res.json(publicMerchant(merchant));
+  });
+
+  app.patch('/v1/me', auth, (req, res) => {
+    const session = res.locals.session as Session;
+    const merchant = store.getMerchantById(session.merchantId);
+    if (!merchant) return res.status(404).json({ error: 'merchant not found' });
+
+    const parsed = PatchMerchantSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
+    }
+    // SSRF guard: same policy as onboarding / admin PATCH.
+    if (parsed.data.webhookUrl !== undefined) {
+      try {
+        assertSafeWebhookUrl(parsed.data.webhookUrl, cfg.WEBHOOK_ALLOW_INSECURE_URLS);
+      } catch (e) {
+        if (e instanceof UnsafeWebhookUrlError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    }
+    const { name, webhookUrl } = parsed.data;
+    const updated: Merchant = {
+      ...merchant,
+      name: name ?? merchant.name,
+      webhookUrl: webhookUrl ?? merchant.webhookUrl,
+    };
+    store.upsertMerchant(updated);
+    logger.info({ merchantId: updated.merchantId }, 'merchant profile updated');
+    res.json(publicMerchant(updated));
+  });
+
+  app.get('/v1/me/deliveries', auth, (_req, res) => {
+    const session = res.locals.session as Session;
+    res.json({
+      deliveries: store
+        .listDeliveries(100)
+        .filter((d) => d.merchantId === session.merchantId),
+    });
+  });
 
   // --- admin ---
   const admin = express.Router();
@@ -249,6 +382,26 @@ function requireAdmin(cfg: Config) {
     if (!ok) {
       return res.status(401).json({ error: 'unauthorized' });
     }
+    next();
+  };
+}
+
+/** Extract a raw bearer token from the Authorization header, if present. */
+function bearerToken(req: Request): string {
+  const header = req.header('authorization') ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7) : '';
+}
+
+/** Require a valid session token; on success the session is exposed via res.locals.session. */
+function requireSession(store: Store) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const token = bearerToken(req);
+    // getSession lazily expires tokens on access, so a stale token fails here naturally.
+    const session = token ? store.getSession(token) : undefined;
+    if (!session) {
+      return res.status(401).json({ error: 'unauthorized — log in again' });
+    }
+    res.locals.session = session;
     next();
   };
 }

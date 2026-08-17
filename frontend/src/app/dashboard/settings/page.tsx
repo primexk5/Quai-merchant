@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
+import { getStoredToken } from "@/lib/auth";
 import { adminPatch, useRelayerData } from "@/lib/relayer";
 
 export default function SettingsPage() {
@@ -41,7 +42,9 @@ export default function SettingsPage() {
     setSaved(false);
     setSaveError(null);
     try {
-      await adminPatch(`/v1/merchants/${merchant.address}`, { webhookUrl });
+      // Logged-in merchants update their own profile; the demo fallback uses the admin route.
+      const path = getStoredToken() ? "/v1/me" : `/v1/merchants/${merchant.address}`;
+      await adminPatch(path, { webhookUrl });
       setDirty(false);
       setSaved(true);
       void refresh();

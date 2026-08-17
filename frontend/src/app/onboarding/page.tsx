@@ -218,7 +218,7 @@ export default function OnboardingPage() {
                   </p>
                   <button
                     onClick={copySecret}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/[0.07] px-2 py-1 text-xs text-[#8b93a7] hover:text-[#061018]"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/[0.07] px-2 py-1 text-xs text-[#8b93a7] hover:text-white"
                   >
                     <Copy size={12} />
                     {copied ? "Copied" : "Copy"}
@@ -227,10 +227,10 @@ export default function OnboardingPage() {
               </div>
 
               <Link
-                href="/dashboard"
-                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-[#061018]"
+                href="/login"
+                className="mt-7 inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-3 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff]"
               >
-                Open dashboard
+                Log in to dashboard
                 <ArrowRight size={15} />
               </Link>
             </div>

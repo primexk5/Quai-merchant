@@ -1,0 +1,311 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { randomBytes } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { Wallet } from 'quais';
+import { createServer } from '../src/api/server.js';
+import { JsonStore } from '../src/store/json.js';
+import type { Config } from '../src/config.js';
+import type { QuaiClient } from '../src/chain/client.js';
+import type { WebhookDelivery } from '../src/types.js';
+
+const ADMIN_KEY = 'test-admin-key-0123456789abcdef';
+const CONTRACT = '0x0000000000000000000000000000000000000001';
+
+const cfg = {
+  ADMIN_API_KEY: ADMIN_KEY,
+  CORS_ORIGINS: '*',
+  CHAIN_ID: 9,
+  PAYWITHQUAI_ADDRESS: CONTRACT,
+} as unknown as Config;
+
+// quais' alpha API has no Wallet.createRandom — construct from a fresh random key.
+const wallet = new Wallet('0x' + randomBytes(32).toString('hex'));
+const merchantAddress = wallet.address;
+
+function freshRandomWallet(): Wallet {
+  return new Wallet('0x' + randomBytes(32).toString('hex'));
+}
+
+function fakeClient(): QuaiClient {
+  return { address: CONTRACT } as unknown as QuaiClient;
+}
+
+const dirs: string[] = [];
+function freshStore(): JsonStore {
+  const dir = mkdtempSync(join(tmpdir(), 'pwq-auth-'));
+  dirs.push(dir);
+  return new JsonStore(join(dir, 'relayer.db'));
+}
+
+const servers: import('node:http').Server[] = [];
+async function startApp(): Promise<{ base: string; store: JsonStore }> {
+  const store = freshStore();
+  const app = createServer(store, fakeClient(), cfg);
+  const server = app.listen(0);
+  servers.push(server);
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+  const { port } = server.address() as AddressInfo;
+  return { base: `http://127.0.0.1:${port}`, store };
+}
+
+async function req(base: string, path: string, init?: RequestInit): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await fetch(base + path, init);
+  const body = (await res.json().catch(() => undefined)) as Record<string, unknown>;
+  return { status: res.status, body };
+}
+
+const auth = (key: string) => ({ authorization: `Bearer ${key}` });
+const jsonHeaders = { 'content-type': 'application/json' };
+
+/** Fresh login message signed by `w` — the message is addressed to w.address. */
+async function signLogin(
+  w: Wallet,
+  tsOffsetS = 0,
+): Promise<{ address: string; message: string; signature: string }> {
+  const ts = Math.floor(Date.now() / 1000) + tsOffsetS;
+  const message = `quai-merchant-login:${w.address}:${ts}`;
+  return { address: w.address, message, signature: await w.signMessage(message) };
+}
+
+/** Onboard the test wallet as a merchant (admin route), returning the webhook secret. */
+async function onboardMerchant(base: string, address = merchantAddress): Promise<void> {
+  const res = await fetch(`${base}/v1/merchants`, {
+    method: 'POST',
+    headers: { ...auth(ADMIN_KEY), ...jsonHeaders },
+    body: JSON.stringify({ address, name: 'Acme', webhookUrl: 'https://example.test/webhook' }),
+  });
+  expect(res.status).toBe(201);
+}
+
+function seedDelivery(store: JsonStore, merchantId: string, over: Partial<WebhookDelivery> = {}) {
+  const d: WebhookDelivery = {
+    id: '0x' + 'cd'.repeat(32) + ':0',
+    merchantId,
+    url: 'https://example.test/webhook',
+    payload: {
+      id: '0x' + 'cd'.repeat(32) + ':0',
+      type: 'payment.confirmed',
+      created: 1,
+      data: {
+        merchantId,
+        merchant: merchantAddress,
+        orderId: '0x' + '22'.repeat(32),
+        payer: '0x00000000000000000000000000000000000000b2',
+        token: '0x0000000000000000000000000000000000000000',
+        amount: '25000000',
+        feeBps: 50,
+        fee: '125000',
+        net: '24875000',
+        txHash: '0x' + 'cd'.repeat(32),
+        blockNumber: 10,
+        timestamp: 1,
+      },
+    },
+    status: 'pending',
+    attempts: 0,
+    nextAttemptAt: 0,
+    lastError: null,
+    createdAt: 1,
+    updatedAt: 1,
+    ...over,
+  };
+  store.insertDeliveryIfAbsent(d);
+  return d;
+}
+
+/** A delivery for a different merchant, with distinct ids so it can't collide with the default. */
+function otherMerchantDelivery(store: JsonStore): WebhookDelivery {
+  return seedDelivery(store, 'mch_other', {
+    id: '0x' + 'ef'.repeat(32) + ':0',
+    payload: {
+      id: '0x' + 'ef'.repeat(32) + ':0',
+      type: 'payment.confirmed',
+      created: 1,
+      data: {
+        merchantId: 'mch_other',
+        merchant: '0x00000000000000000000000000000000000000d4',
+        orderId: '0x' + '33'.repeat(32),
+        payer: '0x00000000000000000000000000000000000000b2',
+        token: '0x0000000000000000000000000000000000000000',
+        amount: '1000000',
+        feeBps: 50,
+        fee: '5000',
+        net: '995000',
+        txHash: '0x' + 'ef'.repeat(32),
+        blockNumber: 11,
+        timestamp: 2,
+      },
+    },
+  });
+}
+
+describe('POST /v1/auth/login', () => {
+  let base: string;
+  beforeAll(async () => {
+    ({ base } = await startApp());
+    await onboardMerchant(base);
+  });
+
+  afterAll(() => {
+    for (const s of servers) s.close();
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('issues a session token for a valid wallet signature', async () => {
+    const { message, signature, address } = await signLogin(wallet);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ merchant: { name: 'Acme' } });
+    expect(typeof res.body.token).toBe('string');
+    expect((res.body.token as string).length).toBeGreaterThanOrEqual(32);
+    expect((res.body.expiresAt as number)).toBeGreaterThan(Date.now());
+  });
+
+  it('rejects a signature from a different wallet', async () => {
+    const other = freshRandomWallet();
+    const ts = Math.floor(Date.now() / 1000);
+    const message = `quai-merchant-login:${merchantAddress}:${ts}`;
+    const signature = await other.signMessage(message);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address: merchantAddress, message, signature }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/signature does not match/i);
+  });
+
+  it('rejects a message not addressed to the claimed wallet', async () => {
+    const other = freshRandomWallet();
+    const { signature } = await signLogin(other);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address: merchantAddress, message: `quai-merchant-login:${other.address}:${Math.floor(Date.now() / 1000)}`, signature }),
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/does not match/i);
+  });
+
+  it('rejects a stale (replayed) login message', async () => {
+    const { message, signature, address } = await signLogin(wallet, -600);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/expired/i);
+  });
+
+  it('rejects login for an address with no registered merchant', async () => {
+    const stranger = freshRandomWallet();
+    const { message, signature } = await signLogin(stranger);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address: stranger.address, message, signature }),
+    });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/onboarding/i);
+  });
+
+  it('rejects malformed bodies and garbage signatures', async () => {
+    const badSig = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address: 'not-an-address', message: 'x', signature: 'y' }),
+    });
+    expect(badSig.status).toBe(400);
+
+    const { address } = await signLogin(wallet);
+    const garbage = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message: 'garbage', signature: '0xdeadbeef' }),
+    });
+    expect(garbage.status).toBe(400);
+  });
+});
+
+describe('session-protected routes', () => {
+  let base: string;
+  let store: JsonStore;
+  let token: string;
+
+  beforeAll(async () => {
+    ({ base, store } = await startApp());
+    await onboardMerchant(base);
+    const { message, signature, address } = await signLogin(wallet);
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    expect(res.status).toBe(200);
+    token = res.body.token as string;
+  });
+
+  afterAll(() => {
+    for (const s of servers) s.close();
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('returns 401 without a token and with a garbage token', async () => {
+    const none = await req(base, '/v1/me');
+    expect(none.status).toBe(401);
+
+    const garbage = await req(base, '/v1/me', { headers: auth('deadbeef') });
+    expect(garbage.status).toBe(401);
+  });
+
+  it('GET /v1/me returns the logged-in merchant profile (no secret)', async () => {
+    const res = await req(base, '/v1/me', { headers: auth(token) });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ name: 'Acme', address: merchantAddress, active: true });
+    expect(res.body).not.toHaveProperty('webhookSecret');
+  });
+
+  it('PATCH /v1/me updates name and webhookUrl without rotating the secret', async () => {
+    const before = await req(base, '/v1/me', { headers: auth(token) });
+    const secretBefore = store.getMerchantById((before.body.merchantId as string) ?? '')?.webhookSecret;
+
+    const res = await req(base, '/v1/me', {
+      method: 'PATCH',
+      headers: { ...auth(token), ...jsonHeaders },
+      body: JSON.stringify({ name: 'Acme 2', webhookUrl: 'https://hooks.example.test/v2' }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ name: 'Acme 2', webhookUrl: 'https://hooks.example.test/v2' });
+
+    const merchant = store.getMerchantByAddress(merchantAddress);
+    expect(merchant?.webhookSecret).toBe(secretBefore);
+  });
+
+  it('GET /v1/me/deliveries returns only deliveries for this merchant', async () => {
+    const merchantId = store.getMerchantByAddress(merchantAddress)!.merchantId;
+    seedDelivery(store, merchantId);
+    otherMerchantDelivery(store);
+
+    const res = await req(base, '/v1/me/deliveries', { headers: auth(token) });
+    expect(res.status).toBe(200);
+    const deliveries = res.body.deliveries as { merchantId: string }[];
+    expect(deliveries.length).toBeGreaterThan(0);
+    expect(deliveries.every((d) => d.merchantId === merchantId)).toBe(true);
+  });
+
+  it('logout invalidates the token', async () => {
+    const logout = await req(base, '/v1/auth/logout', { method: 'POST', headers: auth(token) });
+    expect(logout.status).toBe(204);
+
+    const after = await req(base, '/v1/me', { headers: auth(token) });
+    expect(after.status).toBe(401);
+  });
+});

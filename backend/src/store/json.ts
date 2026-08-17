@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, openSync, closeSync, fsyncSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from './index.js';
-import type { Merchant, WebhookDelivery } from '../types.js';
+import type { Merchant, Session, WebhookDelivery } from '../types.js';
 import { log } from '../logger.js';
 
 const logger = log('store');
@@ -10,6 +10,7 @@ interface FileShape {
   cursors: Record<string, number>; // key: "<chainId>:<contractAddress>" — scoped block cursor
   merchants: Record<string, Merchant>; // key: lowercased address
   deliveries: Record<string, WebhookDelivery>; // key: paymentId
+  sessions: Record<string, Session>; // key: opaque bearer token
 }
 
 /** Case-insensitive lookup key binding a delivery to its (merchant, orderId). */
@@ -49,6 +50,13 @@ export class JsonStore implements Store {
     for (const [id, d] of Object.entries(this.data.deliveries)) {
       this.byOrderKey.set(orderKey(d.payload.data.merchant, d.payload.data.orderId), id);
     }
+    // Expired sessions are dead on arrival — purge them at load so the file can't grow unbounded.
+    const now = Date.now();
+    const sessionCount = Object.keys(this.data.sessions).length;
+    for (const [token, s] of Object.entries(this.data.sessions)) {
+      if (s.expiresAt <= now) delete this.data.sessions[token];
+    }
+    if (Object.keys(this.data.sessions).length < sessionCount) this.flush();
     logger.info(
       { path, merchants: Object.keys(this.data.merchants).length, cursors: Object.keys(this.data.cursors) },
       'store loaded',
@@ -56,13 +64,14 @@ export class JsonStore implements Store {
   }
 
   private read(): FileShape {
-    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {} };
+    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {}, sessions: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as {
         cursor?: number | null;
         cursors?: Record<string, number>;
         merchants?: Record<string, Merchant>;
         deliveries?: Record<string, WebhookDelivery>;
+        sessions?: Record<string, Session>;
       };
       if (parsed.cursors === undefined && typeof parsed.cursor === 'number') {
         // Legacy single-cursor file from before cursors were scoped. Keep it under a `legacy`
@@ -75,6 +84,7 @@ export class JsonStore implements Store {
         cursors: parsed.cursors ?? {},
         merchants: parsed.merchants ?? {},
         deliveries: parsed.deliveries ?? {},
+        sessions: parsed.sessions ?? {},
       };
     } catch (err) {
       throw new Error(`Failed to read store at ${this.path}: ${(err as Error).message}`);
@@ -206,6 +216,28 @@ export class JsonStore implements Store {
     return Object.values(this.data.deliveries)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
+  }
+
+  createSession(s: Session): void {
+    this.data.sessions[s.token] = s;
+    this.flush();
+  }
+
+  getSession(token: string): Session | undefined {
+    const s = this.data.sessions[token];
+    if (s && s.expiresAt <= Date.now()) {
+      delete this.data.sessions[token];
+      this.flush();
+      return undefined;
+    }
+    return s;
+  }
+
+  deleteSession(token: string): void {
+    if (this.data.sessions[token]) {
+      delete this.data.sessions[token];
+      this.flush();
+    }
   }
 
   close(): void {
