@@ -19,10 +19,8 @@ interface OnboardedMerchant {
 
 export default function OnboardingPage() {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("Quai Store");
-  const [webhookUrl, setWebhookUrl] = useState(
-    "http://localhost:9000/webhook",
-  );
+  const [name, setName] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
   const [address, setAddress] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [merchant, setMerchant] = useState<OnboardedMerchant | null>(null);
@@ -31,6 +29,21 @@ export default function OnboardingPage() {
 
   const complete = async () => {
     if (!address) return;
+    if (!name.trim()) {
+      setError("Enter a business name — it shows on your checkout page.");
+      return;
+    }
+    const url = webhookUrl.trim();
+    if (!url) {
+      setError("Enter a webhook URL — the relayer uses it to POST payment events.");
+      return;
+    }
+    try {
+      new URL(url);
+    } catch {
+      setError("That webhook URL doesn't look valid. Use a full URL like http://localhost:9000/webhook.");
+      return;
+    }
     setRegistering(true);
     setError(null);
     try {
@@ -40,7 +53,7 @@ export default function OnboardingPage() {
           "content-type": "application/json",
           authorization: `Bearer ${ADMIN_API_KEY}`,
         },
-        body: JSON.stringify({ address, name, webhookUrl }),
+        body: JSON.stringify({ address, name, webhookUrl: url }),
       });
       if (!res.ok) throw new Error(`registration failed (${res.status})`);
       setMerchant((await res.json()) as OnboardedMerchant);
@@ -127,6 +140,8 @@ export default function OnboardingPage() {
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Quai Store"
+                    name="qm-merchant-name"
+                    autoComplete="off"
                     className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
                 </div>
@@ -139,6 +154,8 @@ export default function OnboardingPage() {
                     value={webhookUrl}
                     onChange={(e) => setWebhookUrl(e.target.value)}
                     placeholder="https://api.example.com/webhooks/quai"
+                    name="qm-webhook-url"
+                    autoComplete="off"
                     className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
                   <span className="mt-2 block text-xs text-[#4f5868]">
@@ -246,7 +263,14 @@ export default function OnboardingPage() {
             <div className="mt-8 flex justify-end">
               {step === 0 ? (
                 <button
-                  onClick={() => setStep(1)}
+                  onClick={() => {
+                    if (!name.trim()) {
+                      setError("Enter your business name before continuing.");
+                      return;
+                    }
+                    setError(null);
+                    setStep(1);
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
                 >
                   Continue
