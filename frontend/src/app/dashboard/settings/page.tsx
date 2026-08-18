@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
-import { getSessionToken } from "@/lib/auth";
+import { isLoggedIn } from "@/lib/auth";
 import { adminPatch, useRelayerData } from "@/lib/relayer";
 
 export default function SettingsPage() {
@@ -44,7 +44,7 @@ export default function SettingsPage() {
     try {
       // Logged-in merchants update their own profile (cookie/token-authenticated);
       // the demo fallback goes through the server-side admin proxy (no leaked key).
-      const path = getSessionToken()
+      const path = isLoggedIn()
         ? "/v1/me"
         : `/api/admin/merchants/${merchant.address}`;
       await adminPatch(path, { webhookUrl });

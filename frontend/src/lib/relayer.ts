@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatQuai, formatUnits } from "quais";
 import { backendFetch } from "@/lib/payment";
-import { getSessionToken } from "@/lib/auth";
+import { getSessionToken, isLoggedIn } from "@/lib/auth";
 
 export interface DeliveryData {
   merchant: string;
@@ -46,8 +46,16 @@ function adminHeaders(): Record<string, string> {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+/** /api/admin/* hits the Next.js proxy (same-origin); /v1/* hits the Express relayer. */
+function relayerFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (path.startsWith("/api/")) {
+    return fetch(path, { credentials: "include", ...init });
+  }
+  return backendFetch(path, init);
+}
+
 async function adminGet<T>(path: string): Promise<T> {
-  const res = await backendFetch(path, {
+  const res = await relayerFetch(path, {
     headers: adminHeaders(),
     signal: AbortSignal.timeout(10_000),
   });
@@ -56,7 +64,7 @@ async function adminGet<T>(path: string): Promise<T> {
 }
 
 export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await backendFetch(path, {
+  const res = await relayerFetch(path, {
     method: "PATCH",
     headers: {
       ...adminHeaders(),
@@ -84,7 +92,7 @@ export function useRelayerData(intervalMs = 8000) {
 
   const refresh = useCallback(async () => {
     try {
-      if (getSessionToken()) {
+      if (isLoggedIn()) {
         const [me, d] = await Promise.all([
           adminGet<Merchant>("/v1/me"),
           adminGet<{ deliveries: Delivery[] }>("/v1/me/deliveries"),
