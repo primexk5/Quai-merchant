@@ -74,7 +74,7 @@ export function postWebhook(opts: PostOptions): Promise<PostResult> {
     };
 
     if (!opts.allowInsecure) {
-      requestOpts.lookup = guardedLookup;
+      requestOpts.lookup = guardedLookup();
     }
 
     const req = transport.request(requestOpts, (res) => {
@@ -105,25 +105,43 @@ export function postWebhook(opts: PostOptions): Promise<PostResult> {
   });
 }
 
-/** Single DNS resolution shared with the socket dial; rejects private/reserved answers. */
-const guardedLookup: LookupFunction = (hostname, _options, callback) => {
-  dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
-    if (err) {
-      callback(err as NodeJS.ErrnoException, undefined as unknown as string, 0);
-      return;
-    }
-    const valid = addresses.filter((a) => !isPrivateIp(a.address));
-    const first = valid[0];
-    if (!first) {
-      callback(
-        new UnsafeWebhookUrlError(
-          `webhookUrl host ${hostname} resolves only to private/reserved addresses`,
-        ),
-        undefined as unknown as string,
-        0,
-      );
-      return;
-    }
-    callback(null, first.address, first.family);
-  });
-};
+/** Lookup compatible with Node's `all: true` contract (address list in the callback). */
+type AddressResolver = (
+  hostname: string,
+  options: dns.LookupAllOptions,
+  callback: (err: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void,
+) => void;
+
+/** Single DNS resolution shared with the socket dial; rejects private/reserved answers.
+ *  Honors Node's `options.all` contract: the autoSelectFamily (Happy Eyeballs) path calls the
+ *  lookup with `all: true` and expects the FULL validated address list back — returning a single
+ *  string there makes Node iterate it character-by-character and fail with "Invalid IP address:
+ *  undefined". */
+export function guardedLookup(
+  resolve: AddressResolver = dns.lookup,
+): LookupFunction {
+  return (hostname, options, callback) => {
+    resolve(hostname, { all: true, verbatim: true }, (err, addresses) => {
+      if (err) {
+        callback(err as NodeJS.ErrnoException, undefined as unknown as string, 0);
+        return;
+      }
+      const valid = addresses.filter((a) => !isPrivateIp(a.address));
+      if (valid.length === 0) {
+        callback(
+          new UnsafeWebhookUrlError(
+            `webhookUrl host ${hostname} resolves only to private/reserved addresses`,
+          ),
+          undefined as unknown as string,
+          0,
+        );
+        return;
+      }
+      if (options.all) {
+        callback(null, valid as unknown as string, 0);
+        return;
+      }
+      callback(null, valid[0]!.address, valid[0]!.family);
+    });
+  };
+}
