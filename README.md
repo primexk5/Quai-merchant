@@ -1,6 +1,8 @@
 # QuaiMerchant — Non-custodial crypto payments for Quai
 
-Accept payments on the Quai network with a plain wallet — no accounts, no KYC, no custody. A customer pays your checkout page, the `PayWithQuai` contract routes the funds straight to your wallet in the same transaction, and the relayer confirms it with a signed webhook your backend can verify.
+Accept payments on the Quai network with a plain wallet — no accounts, no KYC, no custody. Customers can pay using any Quai-compatible browser extension (like Pelagus) or via mobile using **Blip**, the premier self-custody iPhone wallet for Quai. 
+
+A customer pays your checkout page, the `PayWithQuai` contract routes the funds straight to your wallet in the same transaction, and the relayer confirms it with a signed webhook your backend can verify.
 
 ```
 customer                               PayWithQuai (on-chain)               your server
@@ -76,6 +78,14 @@ The frontend builds the checkout, wraps order registration/payment in `src/lib/p
 2. **Log in** (`/login`) — connect the registered wallet and sign a challenge (`quai-merchant-login:<address>:<unixSeconds>`). Sessions are opaque tokens, 24h TTL, verified with `verifyMessage` (5-minute replay window).
 3. **Dashboard** — see your payments and webhook deliveries (`/v1/me`, `/v1/me/deliveries`), edit your webhook URL, and grab the checkout snippet.
 4. **Receive webhooks** — the relayer POSTs signed `payment.confirmed` events; verify with the secret.
+
+## Blip Mobile Payments
+
+Quai Merchant features native integration with **Blip Pay**. 
+For physical or mobile-first commerce, the checkout can display a deep-link QR code.
+- Scanning the QR automatically opens the Blip iOS app.
+- The merchant address and payment amount are pre-filled using the `blip://pay` URI scheme.
+- Users can confirm the transaction in a single tap on their phone.
 
 ## API
 

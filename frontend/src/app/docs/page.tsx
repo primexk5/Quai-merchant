@@ -22,6 +22,7 @@ const sections = [
   { id: "before-you-start", label: "Before you start" },
   { id: "register-order", label: "Step 1 — Register the order" },
   { id: "customer-pays", label: "Step 2 — Customer pays" },
+  { id: "mobile-payments", label: "Mobile payments (Blip Pay)" },
   { id: "webhook", label: "Step 3 — Verify the webhook" },
   { id: "quick-reference", label: "Quick reference" },
   { id: "testing", label: "Testing on testnet" },
@@ -366,6 +367,39 @@ export default function DocsPage() {
               The contract splits off the fee, forwards the rest to your wallet,
               and marks the order settled — all in one transaction. A second
               payment reverts, so double-fulfillment is impossible.
+            </Callout>
+          </section>
+
+          {/* Mobile Payments (Blip Pay) */}
+          <section className="mt-16">
+            <SectionHeading
+              id="mobile-payments"
+              kicker="Blip Pay"
+              title="Mobile payments with Blip"
+            />
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              Quai Merchant natively supports <span className="font-medium text-white">Blip Pay</span> for mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip iOS app directly with the payment pre-filled.
+            </p>
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              The Blip URI scheme requires the merchant address and the amount.
+            </p>
+
+            <div className="mt-5">
+              <CodeBlock
+                label="blip-link.ts"
+                code={`// Deep-link format:
+const deepLink = \`blip://pay?to=\${MERCHANT_ADDRESS}&amount=\${amount}&label=MyStore\`;
+
+// Open this link in a button on mobile devices, or encode it into a QR code for desktop users:
+import QRCode from "react-qr-code";
+<QRCode value={deepLink} size={160} />`}
+              />
+            </div>
+
+            <Callout tone="info" title="Automatic detection">
+              When a user browses your checkout from within the Blip in-app browser, it automatically injects \`window.quai\`. You can detect it to seamlessly trigger standard extension-like payments!
             </Callout>
           </section>
 

@@ -110,9 +110,7 @@ export default function Home() {
               transition={{ type: "spring", stiffness: 80, damping: 20, delay: 0.2 }}
               className="mt-7 max-w-xl text-lg leading-8 text-slate-400 mx-auto"
             >
-              Accept stablecoin payments through a simple, non-custodial
-              checkout. Give customers a familiar payment experience while
-              settling on Quai.
+              Accept payments through a simple, non-custodial checkout. Give customers a familiar payment experience using browser extensions or seamlessly on mobile with Blip Pay.
             </motion.p>
 
             <motion.div
