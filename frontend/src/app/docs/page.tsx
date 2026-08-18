@@ -398,20 +398,36 @@ export default function DocsPage() {
             </p>
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
-              The Blip URI scheme requires the merchant address and the amount.
+              Encode your checkout page URL in a QR code, or deep-link mobile users into Blip&apos;s
+              in-app browser. Both paths call <span className="font-mono text-[#c9d4e0]">payOrderNative</span>{" "}
+              on PayWithQuai — the merchant dashboard updates via webhook, same as a desktop wallet.
             </p>
 
             <div className="mt-5">
               <CodeBlock
                 label="blip-link.ts"
-                code={`// Deep-link format:
-const deepLink = \`blip://pay?to=\${MERCHANT_ADDRESS}&amount=\${amount}&label=MyStore\`;
+                code={`const checkoutUrl = \`\${ORIGIN}/checkout/\${merchant}/\${orderId}\`;
 
-// Open this link in a button on mobile devices, or encode it into a QR code for desktop users:
-import QRCode from "react-qr-code";
-<QRCode value={deepLink} size={160} />`}
+// QR — works on any phone (Blip in-app browser or Pelagus / MetaMask in Safari/Chrome)
+<QRCode value={checkoutUrl} size={160} />
+
+// Mobile — open checkout inside the Blip app (iOS & Android)
+const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkoutUrl)}\`;`}
               />
             </div>
+
+            <Callout tone="info" title="Inside Blip's browser">
+              When the checkout loads inside Blip, <span className="font-mono text-[#c9d4e0]">window.quai</span> is
+              injected automatically. The customer taps Pay once — the app signs{" "}
+              <span className="font-mono text-[#c9d4e0]">payOrderNative</span> and the relayer POSTs the
+              signed webhook to the merchant.
+            </Callout>
+
+            <Callout tone="warning" title="Do not use blip://pay for registered orders">
+              <span className="font-mono text-[#c9d4e0]">blip://pay?to=…&amp;amount=…</span> sends QUAI
+              directly to an address and skips PayWithQuai — no order settlement, no webhook. Always
+              route customers through your checkout URL instead.
+            </Callout>
 
             <Callout tone="info" title="Automatic detection">
               When a user browses your checkout, onboarding, or login pages from within the Blip in-app browser, it automatically injects \`window.quai\`. You can detect it to seamlessly trigger standard EIP-1193 interactions (connecting, signing, or paying) with just a tap!

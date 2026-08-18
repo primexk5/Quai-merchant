@@ -25,7 +25,17 @@ import {
   waitForConfirmation,
   type OnChainOrder,
 } from "@/lib/payment";
-import { getActiveWallet } from "@/lib/wallets";
+import {
+  blipBrowserLink,
+  checkoutPageUrl,
+  isInsideBlipBrowser,
+} from "@/lib/blip";
+import {
+  connectWallet,
+  detectWallets,
+  getActiveWallet,
+  storeWalletId,
+} from "@/lib/wallets";
 
 type Params = Promise<{ merchant: string; orderId: string }>;
 
@@ -37,7 +47,7 @@ type Stage =
   | { name: "ready" }
   | { name: "paying"; step: string }
   | { name: "awaiting"; webhook: string | null }
-  | { name: "done"; txHash: string; net: string; symbol: string }
+  | { name: "done"; txHash: string; net: string; symbol: string; webhookPending?: boolean }
   | { name: "error"; message: string };
 
 function isExpired(expiry: bigint): boolean {
@@ -49,8 +59,38 @@ export default function CheckoutPage({ params }: { params: Params }) {
   const [merchant, setMerchant] = useState("");
   const [orderId, setOrderId] = useState("");
   const [order, setOrder] = useState<OnChainOrder | null>(null);
-  const [payTab, setPayTab] = useState<"blip" | "wallet">("blip");
+  const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
   const [connected, setConnected] = useState<string | null>(null);
+  const [insideBlip, setInsideBlip] = useState(false);
+  const [checkoutUrl, setCheckoutUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      setInsideBlip(isInsideBlipBrowser());
+      if (merchant && orderId) {
+        setCheckoutUrl(checkoutPageUrl(merchant, orderId));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [merchant, orderId]);
+
+  /** Inside Blip's browser: auto-connect window.quai so pay is one tap. */
+  useEffect(() => {
+    if (!insideBlip || connected || stage.name !== "ready") return;
+    const blip = detectWallets().find((w) => w.brand === "blip");
+    if (!blip) return;
+    void connectWallet(blip)
+      .then((addr) => {
+        storeWalletId(blip.id);
+        setConnected(addr);
+      })
+      .catch(() => undefined);
+  }, [insideBlip, connected, stage.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,13 +155,6 @@ export default function CheckoutPage({ params }: { params: Params }) {
   const netAmount = (o: OnChainOrder) =>
     o.amount - (o.amount * BigInt(o.feeBps)) / 10000n;
 
-  const blipDeepLink = (o: OnChainOrder) => {
-    const amount = isNative(o)
-      ? formatQuai(o.amount)
-      : formatUnits(o.amount, 6);
-    return `blip://pay?to=${o.merchant}&amount=${amount}&label=QuaiMerchant`;
-  };
-
   const payerAllowed = (o: OnChainOrder) => {
     if (o.expectedPayer === ZERO_ADDRESS) return true;
     return (
@@ -150,17 +183,21 @@ export default function CheckoutPage({ params }: { params: Params }) {
     try {
       setStage({ name: "paying", step: "Awaiting wallet approval…" });
       const txHash = isNative(order)
-        ? await payOrderNative(order.merchant, orderId, formatQuai(order.amount))
+        ? await payOrderNative(order.merchant, orderId, order.amount)
         : await payOrder(order.merchant, orderId, order.token, order.amount);
       setStage({ name: "awaiting", webhook: null });
-      await waitForConfirmation(order.merchant, orderId, (webhook) =>
+      const confirmation = await waitForConfirmation(order.merchant, orderId, (webhook) =>
         setStage({ name: "awaiting", webhook }),
       );
+      if (!confirmation.settledOnChain) {
+        throw new Error("Payment was not confirmed on-chain — check your wallet and try again.");
+      }
       setStage({
         name: "done",
         txHash,
         net: formatAmount(order, netAmount(order)),
         symbol: symbol(order),
+        webhookPending: !confirmation.webhookDelivered,
       });
     } catch (err: unknown) {
       setStage({
@@ -182,9 +219,9 @@ export default function CheckoutPage({ params }: { params: Params }) {
             {stage.net} {stage.symbol} sent
           </h1>
           <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#8b93a7]">
-            The merchant receives the payment directly — their wallet is also
-            getting a signed <code>payment.confirmed</code> webhook from the
-            relayer.
+            {stage.webhookPending
+              ? "Payment settled on-chain. The merchant webhook is still pending — they may take a moment to confirm your order."
+              : "The merchant receives the payment directly — their wallet is also getting a signed payment.confirmed webhook from the relayer."}
           </p>
           <div className="mt-6 space-y-2 rounded-2xl border border-white/7 bg-[#171717] p-4 text-left font-mono text-xs text-[#8b93a7]">
             <p className="break-all">
@@ -320,85 +357,21 @@ export default function CheckoutPage({ params }: { params: Params }) {
 
               {stage.name === "ready" && (
                 <>
-                  <div className="mt-6 overflow-hidden rounded-2xl border border-white/7 bg-[#171717]">
-                    <div className="flex border-b border-white/7">
-                      {isNative(order) && (
-                        <button
-                          onClick={() => setPayTab("blip")}
-                          className={`flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition ${
-                            payTab === "blip"
-                              ? "border-b-2 border-[#C1ED00] text-white"
-                              : "text-[#8b93a7] hover:text-white"
-                          }`}
-                        >
-                          <Smartphone size={15} />
-                          Pay with Blip
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setPayTab("wallet")}
-                        className={`flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition ${
-                          payTab === "wallet" || !isNative(order)
-                            ? "border-b-2 border-[#38bdf8] text-white"
-                            : "text-[#8b93a7] hover:text-white"
-                        }`}
-                      >
-                        <Wallet size={15} />
-                        Browser Wallet
-                      </button>
-                    </div>
-
-                    {payTab === "blip" && isNative(order) && (
-                      <div className="flex flex-col items-center p-6">
-                        <div className="mb-4 rounded-2xl bg-white p-3 shadow-md ring-4 ring-[#C1ED00]/20">
-                          <QRCode
-                            value={blipDeepLink(order)}
-                            size={160}
-                            level="M"
-                            fgColor="#0F1116"
-                          />
-                        </div>
-                        <p className="mb-1 text-sm font-medium text-white">
-                          Scan with Blip
-                        </p>
-                        <p className="mb-5 text-center text-xs text-[#8b93a7]">
-                          Open the Blip app → tap{" "}
-                          <span className="font-medium text-white">Scan</span>{" "}
-                          → payment pre-fills automatically.
-                        </p>
-                        <a
-                          href={blipDeepLink(order)}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
-                        >
-                          <Smartphone size={15} />
-                          Open in Blip app
-                        </a>
-                        <p className="mt-3 text-center text-xs text-[#4f5868]">
-                          Don&apos;t have Blip?{" "}
-                          <a
-                            href="https://blippay.me"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[#C1ED00] hover:underline"
-                          >
-                            Download Blip (iOS & Android)
-                          </a>
-                        </p>
-                      </div>
-                    )}
-
-                    {payTab === "wallet" && (
-                      <div className="p-6">
-                        <p className="mb-4 text-center text-xs text-[#8b93a7]">
-                          Connect any Quai-compatible browser wallet (Pelagus,
-                          Blip or MetaMask).
-                        </p>
+                  {insideBlip ? (
+                    <div className="mt-6 rounded-2xl border border-[#C1ED00]/25 bg-[#171717] p-6">
+                      <p className="text-center text-sm font-medium text-white">
+                        Pay with Blip
+                      </p>
+                      <p className="mt-2 text-center text-xs leading-5 text-[#8b93a7]">
+                        Confirm in Blip to settle this order on PayWithQuai —
+                        the merchant gets the same webhook as a browser wallet
+                        payment.
+                      </p>
+                      <div className="mt-5 space-y-3">
                         {connected ? (
-                          <div className="space-y-3">
+                          <>
                             <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3 text-center">
-                              <p className="text-xs text-[#8b93a7]">
-                                Paying as
-                              </p>
+                              <p className="text-xs text-[#8b93a7]">Paying as</p>
                               <p className="mt-1 break-all font-mono text-xs text-white">
                                 {connected}
                               </p>
@@ -412,22 +385,144 @@ export default function CheckoutPage({ params }: { params: Params }) {
                             <button
                               onClick={() => void connectAndPay()}
                               disabled={!payerAllowed(order)}
-                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] py-3.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff] disabled:opacity-50"
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00] disabled:opacity-50"
                             >
+                              <Smartphone size={15} />
                               Pay {formatAmount(order, order.amount)}{" "}
                               {symbol(order)}
                             </button>
-                          </div>
+                          </>
                         ) : (
-                          <WalletSelector
-                            connectedAddress={null}
-                            onConnected={setConnected}
-                            label="Connect wallet to pay"
-                          />
+                          <div className="flex items-center justify-center gap-2 py-4 text-sm text-[#8b93a7]">
+                            <Loader2 size={16} className="animate-spin text-[#C1ED00]" />
+                            Connecting Blip wallet…
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <>
+                      {checkoutUrl && (
+                        <div className="mt-6 flex flex-col items-center rounded-2xl border border-white/7 bg-[#171717] p-6">
+                          <div className="rounded-2xl bg-white p-3 shadow-md ring-4 ring-white/10">
+                            <QRCode
+                              value={checkoutUrl}
+                              size={160}
+                              level="M"
+                              fgColor="#0F1116"
+                            />
+                          </div>
+                          <p className="mt-4 text-sm font-medium text-white">
+                            Scan to pay
+                          </p>
+                          <p className="mt-2 max-w-xs text-center text-xs leading-5 text-[#8b93a7]">
+                            Opens this checkout on your phone — pay with Blip
+                            (in-app browser) or any browser wallet (Pelagus,
+                            MetaMask).
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="mt-6 overflow-hidden rounded-2xl border border-white/7 bg-[#171717]">
+                        <div className="flex border-b border-white/7">
+                          {isNative(order) && (
+                            <button
+                              onClick={() => setPayTab("blip")}
+                              className={`flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition ${
+                                payTab === "blip"
+                                  ? "border-b-2 border-[#C1ED00] text-white"
+                                  : "text-[#8b93a7] hover:text-white"
+                              }`}
+                            >
+                              <Smartphone size={15} />
+                              Pay with Blip
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setPayTab("wallet")}
+                            className={`flex flex-1 items-center justify-center gap-2 py-3 text-sm font-medium transition ${
+                              payTab === "wallet" || !isNative(order)
+                                ? "border-b-2 border-[#38bdf8] text-white"
+                                : "text-[#8b93a7] hover:text-white"
+                            }`}
+                          >
+                            <Wallet size={15} />
+                            Browser Wallet
+                          </button>
+                        </div>
+
+                        {payTab === "blip" && isNative(order) && checkoutUrl && (
+                          <div className="flex flex-col items-center p-6">
+                            <p className="mb-5 text-center text-xs leading-5 text-[#8b93a7]">
+                              Opens this checkout inside the Blip app. Tap Pay
+                              there to settle the order on-chain — the merchant
+                              dashboard updates via webhook, same as wallet
+                              connect.
+                            </p>
+                            <a
+                              href={blipBrowserLink(checkoutUrl)}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
+                            >
+                              <Smartphone size={15} />
+                              Open in Blip app
+                            </a>
+                            <p className="mt-3 text-center text-xs text-[#4f5868]">
+                              Don&apos;t have Blip?{" "}
+                              <a
+                                href="https://blippay.me"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[#C1ED00] hover:underline"
+                              >
+                                Download Blip (iOS & Android)
+                              </a>
+                            </p>
+                          </div>
+                        )}
+
+                        {payTab === "wallet" && (
+                          <div className="p-6">
+                            <p className="mb-4 text-center text-xs text-[#8b93a7]">
+                              Connect any Quai-compatible browser wallet
+                              (Pelagus, Blip in-app browser, or MetaMask).
+                            </p>
+                            {connected ? (
+                              <div className="space-y-3">
+                                <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3 text-center">
+                                  <p className="text-xs text-[#8b93a7]">
+                                    Paying as
+                                  </p>
+                                  <p className="mt-1 break-all font-mono text-xs text-white">
+                                    {connected}
+                                  </p>
+                                </div>
+                                {!payerAllowed(order) && (
+                                  <p className="rounded-xl border border-amber-400/20 bg-amber-400/6 px-4 py-3 text-center text-xs text-amber-300">
+                                    This order is reserved for another wallet —
+                                    you can&apos;t settle it.
+                                  </p>
+                                )}
+                                <button
+                                  onClick={() => void connectAndPay()}
+                                  disabled={!payerAllowed(order)}
+                                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] py-3.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff] disabled:opacity-50"
+                                >
+                                  Pay {formatAmount(order, order.amount)}{" "}
+                                  {symbol(order)}
+                                </button>
+                              </div>
+                            ) : (
+                              <WalletSelector
+                                connectedAddress={null}
+                                onConnected={setConnected}
+                                label="Connect wallet to pay"
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   <div className="mt-5 flex items-center justify-center gap-5 text-xs text-[#8b93a7]">
                     <span className="flex items-center gap-1.5">

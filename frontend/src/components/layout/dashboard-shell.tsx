@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
-import { getStoredAddress, isLoggedIn, logout } from "@/lib/auth";
+import { getStoredAddress, isLoggedIn, logout, restoreSession } from "@/lib/auth";
 
 function shortAddress(address: string | null): string {
   if (!address) return "Not signed in";
@@ -60,10 +60,15 @@ export function DashboardShell({
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
-  // Auth guard: the dashboard is only for logged-in merchants.
+  // Re-validate the HttpOnly cookie session after a reload (in-memory token is gone).
   useEffect(() => {
-    if (!isLoggedIn()) router.replace("/login");
+    if (!isLoggedIn()) {
+      router.replace("/login");
+      return;
+    }
+    void restoreSession().finally(() => setSessionReady(true));
   }, [router]);
 
   const signOut = async () => {
@@ -203,7 +208,13 @@ export function DashboardShell({
           </div>
         </header>
 
-        <main className="min-h-[calc(100vh-5rem)]">{children}</main>
+        <main className="min-h-[calc(100vh-5rem)]">
+          {sessionReady ? children : (
+            <div className="flex min-h-[50vh] items-center justify-center">
+              <Loader2 size={24} className="animate-spin text-[#38bdf8]" />
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );

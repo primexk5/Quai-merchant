@@ -21,21 +21,31 @@ export const BACKEND_URLS = BACKEND_URL.split(",")
   .map((u) => u.trim())
   .filter(Boolean);
 
-/** Fetch against the first reachable backend URL. Network failures fall through to the next
- *  candidate; any HTTP response (even 4xx/5xx) counts as "reached" and is returned as-is.
+/** HTTP statuses that mean the host is up but failing — try the next backend URL. */
+const FAILOVER_STATUSES = new Set([502, 503, 504]);
+
+/** Fetch against the first reachable backend URL. Network failures and 502/503/504 fall
+ *  through to the next candidate; other HTTP responses are returned as-is.
  *
  *  `credentials: "include"` makes the browser send (and store) the HttpOnly session cookie the
  *  backend issues at login — cross-origin, thanks to the backend's CORS + SameSite settings.
  *  NOTE: this module is imported by client components, so no secret may ever live here. */
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
+  let lastResponse: Response | undefined;
   for (const base of BACKEND_URLS) {
     try {
-      return await fetch(`${base}${path}`, { credentials: "include", ...init });
+      const res = await fetch(`${base}${path}`, { credentials: "include", ...init });
+      if (FAILOVER_STATUSES.has(res.status)) {
+        lastResponse = res;
+        continue;
+      }
+      return res;
     } catch (err) {
       lastError = err;
     }
   }
+  if (lastResponse) return lastResponse;
   throw lastError instanceof Error ? lastError : new Error("backend unreachable");
 }
 
@@ -52,6 +62,16 @@ function getContract(signer?: Signer): Contract {
   return new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, signer);
 }
 
+/** Orders are keyed by msg.sender on-chain — the connected wallet must match `merchant`. */
+async function assertMerchantSigner(signer: Signer, merchant: string): Promise<void> {
+  const connected = (await signer.getAddress()).toLowerCase();
+  if (connected !== merchant.toLowerCase()) {
+    throw new Error(
+      `Connected wallet (${connected}) does not match the merchant address (${merchant}).`,
+    );
+  }
+}
+
 /** Merchant registers an order on-chain. Returns the tx receipt. */
 export async function registerOrder(
   merchant: string,
@@ -61,6 +81,7 @@ export async function registerOrder(
   expiry = 0n,
 ): Promise<string> {
   const signer = await getSigner();
+  await assertMerchantSigner(signer, merchant);
   const tx = await getContract(signer).registerOrder(orderId, token, amount, expiry);
   const receipt = await tx.wait();
   return receipt.hash;
@@ -77,6 +98,7 @@ export async function registerOrderWithPayer(
   expectedPayer: string,
 ): Promise<string> {
   const signer = await getSigner();
+  await assertMerchantSigner(signer, merchant);
   const tx = await getContract(signer).registerOrderWithPayer(
     orderId,
     token,
@@ -109,11 +131,12 @@ export async function payOrder(
 export async function payOrderNative(
   merchant: string,
   orderId: string,
-  amountQuai: string,
+  amount: bigint | string,
 ): Promise<string> {
   const signer = await getSigner();
+  const value = typeof amount === "bigint" ? amount : parseQuai(amount);
   const tx = await getContract(signer).payOrderNative(merchant, orderId, {
-    value: parseQuai(amountQuai),
+    value,
   });
   const receipt = await tx.wait();
   return receipt.hash;
@@ -203,34 +226,46 @@ export async function getOrderOnChain(
   };
 }
 
-/** Poll until the relayer confirms the webhook, with a settled fallback. */
+export interface ConfirmationResult {
+  backend: boolean;
+  settledOnChain: boolean;
+  webhookDelivered: boolean;
+}
+
+/** Poll until the relayer confirms the webhook. On-chain settlement alone is not treated as
+ *  complete — merchants should fulfill on the signed webhook, not just a chain read. */
 export async function waitForConfirmation(
   merchant: string,
   orderId: string,
   onProgress?: (webhookStatus: string | null) => void,
   maxSeconds = 120,
-): Promise<{ backend: boolean; settledOnChain: boolean }> {
+): Promise<ConfirmationResult> {
   const deadline = Date.now() + maxSeconds * 1000;
   let backendOk = false;
+  let settledOnChain = false;
   while (Date.now() < deadline) {
     try {
       const order = await fetchOrderStatus(merchant, orderId);
       if (order) {
         onProgress?.(order.webhook?.status ?? null);
         if (order.settled && order.webhook?.status === "delivered") {
-          return { backend: true, settledOnChain: true };
+          return { backend: true, settledOnChain: true, webhookDelivered: true };
         }
         backendOk = true;
+        if (order.settled) settledOnChain = true;
       }
     } catch {
       // backend unreachable — fall back to on-chain reads below
     }
-    const onChain = await isSettledOnChain(merchant, orderId).catch(() => false);
-    if (onChain) return { backend: backendOk, settledOnChain: true };
+    if (!settledOnChain) {
+      settledOnChain = await isSettledOnChain(merchant, orderId).catch(() => false);
+    }
     await new Promise((r) => setTimeout(r, 4000));
   }
-  const settledOnChain = await isSettledOnChain(merchant, orderId).catch(() => false);
-  return { backend: backendOk, settledOnChain };
+  if (!settledOnChain) {
+    settledOnChain = await isSettledOnChain(merchant, orderId).catch(() => false);
+  }
+  return { backend: backendOk, settledOnChain, webhookDelivered: false };
 }
 
 export { formatQuai, parseQuai };

@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Loader2, Save, ShieldCheck, Wallet } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
@@ -19,11 +19,11 @@ export default function SettingsPage() {
 
   const merchant = merchants[0] ?? null;
 
-  const [prevWebhookUrl, setPrevWebhookUrl] = useState<string | null>(null);
-  if (merchant && merchant.webhookUrl !== prevWebhookUrl) {
-    setPrevWebhookUrl(merchant.webhookUrl);
-    if (!dirty) setWebhookUrl(merchant.webhookUrl);
-  }
+  useEffect(() => {
+    if (!merchant || dirty) return;
+    const t = setTimeout(() => setWebhookUrl(merchant.webhookUrl), 0);
+    return () => clearTimeout(t);
+  }, [merchant, dirty]);
 
   const save = async () => {
     if (!merchant) return;

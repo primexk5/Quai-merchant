@@ -1,17 +1,12 @@
 /**
  * blip.ts — Blip Pay wallet utilities
  *
- * Blip is a self-custody mobile wallet for Quai (available on iOS and Android)
- * that injects window.quai inside its built-in browser, making it behave like
- * any EIP-1193 extension.
+ * Blip injects window.quai inside its in-app browser. PayWithQuai checkouts must
+ * run there (or in a desktop extension) so payOrderNative settles the order and
+ * the relayer fires the merchant webhook — blip://pay send-to-address links do not.
  *
- * On desktop, we can deep-link users into the Blip app via QR code.
- * URI scheme confirmed from blippay.me: blip://open opens the app.
- *
- * NOTE: A dedicated blip://connect?callbackUrl=... scheme is not yet publicly
- * documented. The QR on the login/onboarding pages currently encodes
- * blip://open so users land inside the Blip browser, then tap "Connect."
- * Update this file once the Blip team publishes the connection URI scheme.
+ * Mobile flow: QR / "Open in Blip" → blippay.me/browser?url=<checkout> → user taps Pay
+ * in Blip's browser → contract call → webhook → merchant dashboard updates.
  */
 
 import { useState, useEffect } from "react";
@@ -28,6 +23,20 @@ export function isMobileViewport(): boolean {
   return window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
 }
 
+/** Canonical checkout URL — works in any browser wallet or Blip's in-app browser. */
+export function checkoutPageUrl(merchant: string, orderId: string): string {
+  const path = `/checkout/${merchant}/${orderId}`;
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}${path}`;
+  }
+  return path;
+}
+
+/** Opens a page inside Blip's in-app browser (iOS & Android). */
+export function blipBrowserLink(pageUrl: string): string {
+  return `https://blippay.me/browser?url=${encodeURIComponent(pageUrl)}`;
+}
+
 /**
  * Hook to safely retrieve Blip environment variables on the client
  * without causing React hydration mismatches between Server/Client renders.
@@ -35,7 +44,6 @@ export function isMobileViewport(): boolean {
 export function useBlipContext() {
   const [insideBlip, setInsideBlip] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  // Default fallback for SSR
   const [blipLink, setBlipLink] = useState("https://blippay.me");
 
   useEffect(() => {
@@ -43,8 +51,7 @@ export function useBlipContext() {
       await Promise.resolve();
       setInsideBlip(isInsideBlipBrowser());
       setIsMobile(isMobileViewport());
-      // Blip's universal link to open a specific URL in their in-app browser
-      setBlipLink(`https://blippay.me/browser?url=${encodeURIComponent(window.location.href)}`);
+      setBlipLink(blipBrowserLink(window.location.href));
     })();
   }, []);
 
