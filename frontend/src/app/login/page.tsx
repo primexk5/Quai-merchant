@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { isLoggedIn, loginWithWallet } from "@/lib/auth";
+import { storeWalletId } from "@/lib/wallets";
 import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
 
@@ -69,6 +70,7 @@ export default function LoginPage() {
         method: "quai_requestAccounts",
       })) as string[];
       if (!accounts?.length) throw new Error("Blip returned no accounts — unlock it first.");
+      storeWalletId("blip:quai");
       setAddress(accounts[0]);
     } catch (err) {
       setError((err as Error).message);

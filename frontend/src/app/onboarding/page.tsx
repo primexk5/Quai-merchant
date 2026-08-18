@@ -5,6 +5,7 @@ import { ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-rea
 import { useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
+import { storeWalletId } from "@/lib/wallets";
 import { ADMIN_API_KEY, BACKEND_URL } from "@/lib/payment";
 import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
@@ -101,6 +102,7 @@ export default function OnboardingPage() {
         method: "quai_requestAccounts",
       })) as string[];
       if (!accounts?.length) throw new Error("Blip returned no accounts — unlock it first.");
+      storeWalletId("blip:quai");
       setError(null);
       setAddress(accounts[0]);
     } catch (err) {
