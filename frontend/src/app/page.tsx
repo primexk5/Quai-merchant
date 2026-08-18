@@ -220,7 +220,7 @@ export default function Home() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className="relative overflow-hidden rounded-3xl border border-[#C1ED00]/15 bg-[#C1ED00]/[0.03] p-8 sm:p-12"
+          className="relative overflow-hidden rounded-3xl border border-[#C1ED00]/15 bg-[#C1ED00]/3 p-8 sm:p-12"
         >
           {/* Lime glow */}
           <div className="pointer-events-none absolute -right-32 -top-32 h-64 w-64 rounded-full bg-[#C1ED00]/10 blur-3xl" />
@@ -279,7 +279,7 @@ export default function Home() {
                   href="https://blippay.me"
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-[#C1ED00]/20 bg-[#C1ED00]/[0.05] px-5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/40"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#C1ED00]/20 bg-[#C1ED00]/5 px-5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/40"
                 >
                   Get Blip
                   <ExternalLink className="h-3.5 w-3.5" />
@@ -483,7 +483,7 @@ function Navbar() {
 
         <div className="hidden items-center gap-8 md:flex">
           <a href="#how-it-works" className="text-sm text-slate-500 transition hover:text-white">How it works</a>
-          <Link href="/checkout/demo" className="text-sm text-slate-500 transition hover:text-white">Checkout</Link>
+          <Link href="/checkout/demo" className="text-sm text-slate-500 transition hover:text-white">Checkout Demo</Link>
           <a href="#developers" className="text-sm text-slate-500 transition hover:text-white">Developers</a>
           <Link href="/docs" className="text-sm text-slate-500 transition hover:text-white">Docs</Link>
         </div>
@@ -507,7 +507,7 @@ function Navbar() {
         <div className="absolute left-0 top-18 w-full border-b border-white/5 bg-[#0a0a0a] shadow-xl md:hidden">
           <div className="flex flex-col gap-4 p-6">
             <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">How it works</a>
-            <Link href="/checkout/demo" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Checkout</Link>
+            <Link href="/checkout/demo" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Checkout Demo</Link>
             <a href="#developers" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Developers</a>
             <Link href="/docs" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Docs</Link>
             

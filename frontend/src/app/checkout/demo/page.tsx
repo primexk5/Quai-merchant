@@ -7,14 +7,12 @@ import {
   ExternalLink,
   Loader2,
   LockKeyhole,
-  QrCode,
   ShieldCheck,
   Smartphone,
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { Logo } from "@/components/logo";
-import { WalletSelector } from "@/components/ui/wallet-selector";
 import QRCode from "react-qr-code";
 
 // Blip deep-link: opens the Blip iOS wallet directly to a pre-filled payment screen.
@@ -26,17 +24,12 @@ function blipDeepLink(amount: string, label: string) {
 }
 import {
   newOrderId,
-  parseQuai,
-  payOrderNative,
-  registerOrder,
-  waitForConfirmation,
-  ZERO_ADDRESS,
 } from "@/lib/payment";
 
 const AMOUNT_QUAI = "25.0";
-const ORDER_EXPIRY = 60n * 60n; // 1h
 
 type Stage =
+  | { name: "start" }
   | { name: "connect" }
   | { name: "ready"; merchant: string }
   | { name: "signing"; step: string }
@@ -45,8 +38,9 @@ type Stage =
   | { name: "error"; message: string };
 
 export default function CheckoutDemoPage() {
-  const [stage, setStage] = useState<Stage>({ name: "connect" });
+  const [stage, setStage] = useState<Stage>({ name: "start" });
   const [payTab, setPayTab] = useState<"blip" | "wallet">("blip");
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false);
 
   const pay = async () => {
     if (stage.name !== "ready") return;
@@ -88,8 +82,8 @@ export default function CheckoutDemoPage() {
         orderId,
         txHash: "0x" + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join(""),
       });
-    } catch (err: any) {
-      setStage({ name: "error", message: err.message || "Payment failed" });
+    } catch (err: unknown) {
+      setStage({ name: "error", message: (err as Error).message || "Payment failed" });
     }
   };
 
@@ -191,6 +185,17 @@ export default function CheckoutDemoPage() {
             </div>
           </div>
 
+          {stage.name === "start" && (
+            <div className="mt-6 flex flex-col items-center">
+              <button
+                onClick={() => setStage({ name: "connect" })}
+                className="flex w-full items-center justify-center rounded-xl bg-[#C1ED00] py-3.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
+              >
+                Check out your order with Quai Merchant
+              </button>
+            </div>
+          )}
+
           {stage.name === "connect" && (
             <div className="mt-6 overflow-hidden rounded-2xl border border-white/7 bg-[#171717]">
               {/* Tab switcher */}
@@ -266,19 +271,35 @@ export default function CheckoutDemoPage() {
                 </div>
               )}
 
-              {/* Browser wallet tab */}
+              {/* Browser wallet tab (Mocked for demo) */}
               {payTab === "wallet" && (
                 <div className="p-6">
                   <p className="mb-4 text-center text-xs text-[#8b93a7]">
                     Connect any Quai-compatible browser extension.
                   </p>
-                  <WalletSelector
-                    connectedAddress={null}
-                    onConnected={(address) =>
-                      setStage({ name: "ready", merchant: address })
-                    }
-                    label="Connect wallet to pay"
-                  />
+                  
+                  <button
+                    onClick={() => {
+                      setIsConnectingWallet(true);
+                      setTimeout(() => {
+                        setIsConnectingWallet(false);
+                        setStage({ name: "ready", merchant: "0xDEM0a9C84E0d7005b8D95b8D70188b69324Demo" });
+                      }, 1000);
+                    }}
+                    disabled={isConnectingWallet}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff] disabled:opacity-60"
+                  >
+                    {isConnectingWallet ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Wallet size={15} />
+                    )}
+                    Connect wallet to pay
+                  </button>
+                  
+                  <p className="mt-5 text-center text-xs text-[#4f5868]">
+                    (This is a demo. No real wallet connection required.)
+                  </p>
                 </div>
               )}
             </div>
@@ -296,12 +317,15 @@ export default function CheckoutDemoPage() {
               </div>
 
               <div className="mt-3">
-                <WalletSelector
-                  connectedAddress={stage.merchant}
-                  onConnected={(address) =>
-                    setStage({ name: "ready", merchant: address })
-                  }
-                />
+                <button
+                  disabled
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/7 bg-[#171717] px-4 py-2.5 text-sm font-medium text-[#c9d4e0]"
+                >
+                  <Wallet size={15} className="text-[#38bdf8]" />
+                  <span className="max-w-56 truncate font-mono text-xs">
+                    {stage.merchant}
+                  </span>
+                </button>
               </div>
 
               <button
