@@ -2,6 +2,7 @@ import { getZoneForAddress } from "quais";
 
 export type WalletBrand =
   | "pelagus"
+  | "blip"
   | "metamask"
   | "rabby"
   | "coinbase"
@@ -52,7 +53,8 @@ interface UnknownProvider {
 declare global {
   interface Window {
     pelagus?: Eip1193Provider;
-    quai?: Eip1193Provider;
+    /** Blip wallet injects window.quai inside its in-app browser */
+    quai?: Eip1193Provider & { isBlip?: boolean };
     ethereum?: Eip1193Provider & { providers?: Eip1193Provider[] };
   }
 }
@@ -105,8 +107,23 @@ export function detectWallets(): DetectedWallet[] {
     });
   };
 
+  // Pelagus has first-class slot
   push(window.pelagus, true);
-  push(window.quai, false);
+
+  // Blip wallet injects window.quai — detect it specifically
+  if (window.quai) {
+    const p = window.quai as UnknownProvider & { isBlip?: boolean };
+    if (!seen.has(providerId(window.quai))) {
+      seen.add(providerId(window.quai));
+      wallets.push({
+        id: "blip:quai",
+        name: "Blip Wallet",
+        brand: "blip",
+        provider: window.quai,
+      });
+    }
+  }
+
   push(window.ethereum, false);
 
   const multi = window.ethereum?.providers ?? [];

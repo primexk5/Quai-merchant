@@ -12,11 +12,13 @@ import {
   CircleDollarSign,
   Code2,
   Copy,
+  ExternalLink,
   Globe2,
   Menu,
   Network,
   QrCode,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Zap,
 } from "lucide-react";
@@ -211,6 +213,103 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Blip Wallet Integration Spotlight */}
+      <section className="mx-auto max-w-7xl px-6 py-20 lg:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="relative overflow-hidden rounded-3xl border border-[#C1ED00]/15 bg-[#C1ED00]/[0.03] p-8 sm:p-12"
+        >
+          {/* Lime glow */}
+          <div className="pointer-events-none absolute -right-32 -top-32 h-64 w-64 rounded-full bg-[#C1ED00]/10 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-[#C1ED00]/6 blur-3xl" />
+
+          <div className="relative grid gap-10 lg:grid-cols-2 lg:items-center">
+            <div>
+              {/* Blip logo + badge */}
+              <div className="mb-6 flex items-center gap-3">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#C1ED00]">
+                  <svg viewBox="0 0 100 100" className="h-7 w-7">
+                    <path fill="#0F1116" d="m98.3 24.4c0-7.2-6.9-13.9-18.2-13.9-7.1-0.1-15.7 2-19.8 8.6-2.6-1.8-6.3-3.9-12.6-3.9-6.8 0-13.4 2.5-16.8 8.2-3.2-1.9-6.5-3.2-12.1-3.2-8.9 0-16.8 4.4-16.8 11.7v19.9c2.4 9.2 14.2 26 47.5 34.9 3.9 0.9 9.1 1.9 12.6 2.4 7.3 0.7 17.8-1.5 19.7-9.6 0.4-1.8 0-8.5 0.2-8.5 2.6-0.6 7.9-3.7 8.6-9.3v-8.4c3.2-1.3 7.7-4.8 7.7-10.2v-18.7z"/>
+                    <path fill="#C1ED00" d="m58.4 26.6c-1.3-3.5-6.5-5.1-10.7-5-6.3 0-12.5 2.9-11.1 7 2.5 6.9 11.1 15.4 25.9 18.6 3.7 0.9 7.6 1.4 10.9 1.5 10.1 0 14-7 7.7-10.5-3.3-1.8-5.7-1.6-7.7-2-5.7-0.8-12.7-3.6-15-9.6zm-28.8 4.3c-1.5-2.7-6-4.6-10.8-4.6-6.7 0-12.5 3.2-10.9 7.3 3 8 13.7 20.3 35.6 26.9 4.9 1.6 11.1 2.9 16 3.7 12 2 19.6-3.7 15-8-2.9-2.4-5.9-2.7-7.8-3-13.2-1.6-32.1-8.6-37.1-22.3zm49.3-14.1c-7.8 0-13.7 3.6-13.7 7.4 0 2.9 3.9 7.2 13.2 7.3 8.2 0 14-3.3 14-7.1 0.1-3.2-4-7.4-13.5-7.6z"/>
+                  </svg>
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#C1ED00]">Blip Integration</p>
+                  <p className="text-sm text-slate-400">Self-custody iPhone wallet for Quai</p>
+                </div>
+              </div>
+
+              <h2 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+                Your customers pay{" "}
+                <span className="text-[#C1ED00]">from their phone.</span>
+              </h2>
+
+              <p className="mt-4 max-w-lg leading-7 text-slate-500">
+                Quai Merchant integrates natively with <strong className="text-slate-300">Blip</strong> — the premier self-custody iPhone wallet for Quai. Customers scan a QR code or tap a link, and the Blip app opens with the payment pre-filled. One tap to confirm.
+              </p>
+
+              <ul className="mt-6 space-y-3">
+                {[
+                  "QR code checkout automatically opens Blip",
+                  "Deep-link pre-fills amount + merchant address",
+                  "Detected automatically in Blip's in-app browser",
+                  "No app switching — payment done in seconds",
+                ].map((feat) => (
+                  <li key={feat} className="flex items-start gap-3 text-sm text-slate-400">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#C1ED00]/15 text-[#C1ED00]">
+                      <Check className="h-3 w-3" />
+                    </span>
+                    {feat}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link
+                  href="/checkout/demo"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#C1ED00] px-5 py-2.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
+                >
+                  See it in the checkout demo
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+                <a
+                  href="https://blippay.me"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#C1ED00]/20 bg-[#C1ED00]/[0.05] px-5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/40"
+                >
+                  Get Blip
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            </div>
+
+            {/* Visual: how the Blip flow works */}
+            <div className="mx-auto w-full max-w-sm space-y-3">
+              {[
+                { step: "01", title: "Customer sees checkout", desc: "QR code or 'Open in Blip' button on payment page", icon: QrCode },
+                { step: "02", title: "Blip opens automatically", desc: "Deep-link pre-fills merchant address and amount", icon: Smartphone },
+                { step: "03", title: "One tap to confirm", desc: "Quai settles on-chain instantly, merchant is notified", icon: Check },
+              ].map(({ step, title, desc, icon: Icon }) => (
+                <div key={step} className="flex items-start gap-4 rounded-2xl border border-white/7 bg-[#0a0a0a] p-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C1ED00]/10 text-[#C1ED00]">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-xs font-medium text-[#C1ED00]">{step}</p>
+                    <p className="text-sm font-medium text-white">{title}</p>
+                    <p className="text-xs text-slate-500">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+      </section>
+
       {/* How it works */}
       <section
         id="how-it-works"
@@ -378,7 +477,7 @@ function Navbar() {
         <Link href="/" className="flex items-center gap-2.5">
           <Logo />
           <span className="text-sm font-semibold tracking-tight text-white">
-            PAY WITH <span className="text-sky-400">QUAI</span>
+            QUAI <span className="text-sky-400">MERCHANT</span>
           </span>
         </Link>
 
@@ -431,7 +530,7 @@ function Footer() {
           <Logo />
 
           <span className="text-sm font-medium text-slate-400">
-            Pay with Quai
+            Quai Merchant
           </span>
         </div>
 

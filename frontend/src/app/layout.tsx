@@ -9,7 +9,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Pay with Quai",
+  title: "Quai Merchant",
   description:
     "Accept fast, non-custodial payments on Quai Network.",
 };
