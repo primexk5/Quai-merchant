@@ -73,9 +73,9 @@ export default function SettingsPage() {
         )}
 
         <div className="space-y-5">
-          <section className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-6">
+          <section className="rounded-2xl border border-white/7 bg-[#171717] p-6">
             <div className="mb-6 flex items-start gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
                 <Wallet size={18} />
               </div>
               <div>
@@ -96,7 +96,7 @@ export default function SettingsPage() {
                     <span className="mb-2 block text-[#8b93a7]">
                       Business name
                     </span>
-                    <div className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 py-3 text-white">
+                    <div className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 py-3 text-white">
                       {merchant.name}
                     </div>
                   </div>
@@ -105,7 +105,7 @@ export default function SettingsPage() {
                     <span className="mb-2 block text-[#8b93a7]">
                       Merchant ID
                     </span>
-                    <div className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 py-3 font-mono text-xs text-white">
+                    <div className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 py-3 font-mono text-xs text-white">
                       {merchant.merchantId}
                     </div>
                   </div>
@@ -123,7 +123,7 @@ export default function SettingsPage() {
                       setSaveError(null);
                     }}
                     placeholder="https://example.com/webhooks/paywithquai"
-                    className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 font-mono text-xs text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 font-mono text-xs text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
                   <p className="mt-2 text-xs text-[#4f5868]">
                     HTTPS is required by default — http://localhost is allowed
@@ -138,9 +138,9 @@ export default function SettingsPage() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-6">
+          <section className="rounded-2xl border border-white/7 bg-[#171717] p-6">
             <div className="mb-6 flex items-start gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] text-emerald-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-400/15 bg-emerald-400/6 text-emerald-300">
                 <ShieldCheck size={18} />
               </div>
               <div>
@@ -152,7 +152,7 @@ export default function SettingsPage() {
             </div>
 
             {address ? (
-              <div className="rounded-xl border border-white/[0.07] bg-[#0c1017] p-4">
+              <div className="rounded-xl border border-white/7 bg-[#171717] p-4">
                 <p className="text-xs text-[#8b93a7]">Connected address</p>
                 <p className="mt-2 break-all font-mono text-sm text-white">
                   {address}

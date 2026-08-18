@@ -120,9 +120,9 @@ function Callout({
   children: React.ReactNode;
 }) {
   const styles = {
-    info: "border-[#38bdf8]/25 bg-[#38bdf8]/[0.06] text-[#8b93a7]",
-    warning: "border-amber-400/25 bg-amber-400/[0.06] text-[#8b93a7]",
-    success: "border-[#34d399]/25 bg-[#34d399]/[0.06] text-[#8b93a7]",
+    info: "border-[#38bdf8]/25 bg-[#38bdf8]/6 text-[#8b93a7]",
+    warning: "border-amber-400/25 bg-amber-400/6 text-[#8b93a7]",
+    success: "border-[#34d399]/25 bg-[#34d399]/6 text-[#8b93a7]",
   }[tone];
 
   const Icon = tone === "info" ? Info : tone === "warning" ? AlertTriangle : Check;
@@ -140,15 +140,15 @@ function Callout({
 
 export default function DocsPage() {
   return (
-    <main className="min-h-screen bg-[#0c1017] text-white">
+    <main className="min-h-screen bg-[#171717] text-white">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-[#0c1017]/80 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-white/7 bg-[#171717]/80 backdrop-blur-xl">
         <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2.5">
             <Logo />
             <span className="text-sm font-semibold tracking-tight">
               QUAI<span className="text-[#38bdf8]">Merchant</span>
-              <span className="ml-2 rounded-md border border-[#38bdf8]/25 bg-[#38bdf8]/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-[#38bdf8]">
+              <span className="ml-2 rounded-md border border-[#38bdf8]/25 bg-[#38bdf8]/8 px-1.5 py-0.5 text-[10px] font-medium text-[#38bdf8]">
                 Docs
               </span>
             </span>
@@ -215,7 +215,7 @@ export default function DocsPage() {
               ].map((s) => (
                 <div
                   key={s.n}
-                  className="flex items-start gap-4 rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5"
+                  className="flex items-start gap-4 rounded-2xl border border-white/7 bg-[#171717] p-5"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#38bdf8]/10 text-sm font-bold text-[#38bdf8]">
                     {s.n}
@@ -239,10 +239,10 @@ export default function DocsPage() {
               Your platform operator gives you three things at onboarding:
             </p>
 
-            <div className="mt-5 overflow-hidden rounded-2xl border border-white/[0.07]">
+            <div className="mt-5 overflow-hidden rounded-2xl border border-white/7">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-white/[0.07] bg-white/[0.02]">
+                  <tr className="border-b border-white/7 bg-white/2">
                     <th className="px-4 py-3 font-medium text-[#8b93a7]">
                       You receive
                     </th>
@@ -252,7 +252,7 @@ export default function DocsPage() {
                   </tr>
                 </thead>
                 <tbody className="text-[#c9d4e0]">
-                  <tr className="border-b border-white/[0.07]">
+                  <tr className="border-b border-white/7">
                     <td className="px-4 py-3 font-mono text-[13px]">
                       PAYWITHQUAI_ADDRESS
                     </td>
@@ -260,7 +260,7 @@ export default function DocsPage() {
                       The contract address you register orders on
                     </td>
                   </tr>
-                  <tr className="border-b border-white/[0.07]">
+                  <tr className="border-b border-white/7">
                     <td className="px-4 py-3 font-mono text-[13px]">
                       webhookSecret
                     </td>
@@ -321,7 +321,7 @@ export default function DocsPage() {
 
             <ul className="mt-4 space-y-2 text-sm leading-6 text-[#8b93a7]">
               <li className="flex gap-2.5">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/[0.06]" />
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
                   <span className="font-mono text-[13px] text-[#c9d4e0]">token</span>: an
                   allowlisted ERC-20 address, or{" "}
@@ -330,7 +330,7 @@ export default function DocsPage() {
                 </span>
               </li>
               <li className="flex gap-2.5">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/[0.06]" />
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
                   The platform fee is locked into the order automatically here —
                   you don&apos;t pass it.
@@ -424,10 +424,10 @@ export default function DocsPage() {
             </div>
 
             <p className="mt-5 text-sm font-medium text-white">Common reverts to surface to customers:</p>
-            <div className="mt-3 overflow-hidden rounded-2xl border border-white/[0.07]">
+            <div className="mt-3 overflow-hidden rounded-2xl border border-white/7">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-white/[0.07] bg-white/[0.02]">
+                  <tr className="border-b border-white/7 bg-white/2">
                     <th className="px-4 py-3 font-medium text-[#8b93a7]">Revert</th>
                     <th className="px-4 py-3 font-medium text-[#8b93a7]">Meaning</th>
                   </tr>
@@ -446,7 +446,7 @@ export default function DocsPage() {
                     ],
                     ["OrderNotFound", "no such order for that merchant"],
                   ].map(([revert, meaning]) => (
-                    <tr key={revert} className="border-b border-white/[0.07] last:border-0">
+                    <tr key={revert} className="border-b border-white/7 last:border-0">
                       <td className="px-4 py-3 font-mono text-[13px] text-[#e0a95e]">
                         {revert}
                       </td>
@@ -462,21 +462,21 @@ export default function DocsPage() {
             </p>
             <ul className="mt-3 space-y-2 text-sm leading-6 text-[#8b93a7]">
               <li className="flex gap-2.5">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/[0.06]" />
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
                   <span className="font-mono text-[13px] text-[#c9d4e0]">cancelOrder(orderId)</span>{" "}
                   — cancel an unpaid order and free the id.
                 </span>
               </li>
               <li className="flex gap-2.5">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/[0.06]" />
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
                   <span className="font-mono text-[13px] text-[#c9d4e0]">purgeSettledOrder(orderId)</span>{" "}
                   — reclaim storage 1 day after settlement.
                 </span>
               </li>
               <li className="flex gap-2.5">
-                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/[0.06]" />
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
                   Use a fresh <span className="font-mono text-[13px] text-[#c9d4e0]">orderId</span>{" "}
                   per payment; reusing ids makes status lookups ambiguous.
@@ -509,7 +509,7 @@ export default function DocsPage() {
           </section>
 
           {/* Bottom CTA */}
-          <section className="mt-16 rounded-3xl border border-[#38bdf8]/25 bg-[#38bdf8]/[0.06] p-8">
+          <section className="mt-16 rounded-3xl border border-[#38bdf8]/25 bg-[#38bdf8]/6 p-8">
             <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
               <div>
                 <p className="text-lg font-semibold">Ready to accept payments?</p>
@@ -528,7 +528,7 @@ export default function DocsPage() {
           </section>
 
           {/* Footer */}
-          <footer className="mt-16 flex flex-col gap-4 border-t border-white/[0.07] py-8 sm:flex-row sm:items-center sm:justify-between">
+          <footer className="mt-16 flex flex-col gap-4 border-t border-white/7 py-8 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2.5">
               <Logo className="h-6 w-6" />
               <span className="text-sm font-medium text-[#8b93a7]">

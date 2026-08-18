@@ -16,6 +16,7 @@
     "quais": "^1.0.0-alpha.56",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-qr-code": "^2.2.0",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

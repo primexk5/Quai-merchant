@@ -21,7 +21,7 @@ const brandStyles: Record<WalletBrand, { bg: string; text: string }> = {
   okx: { bg: "bg-slate-800", text: "text-[#061018]" },
   bitget: { bg: "bg-sky-600", text: "text-[#061018]" },
   trust: { bg: "bg-blue-700", text: "text-[#061018]" },
-  frame: { bg: "bg-white/[0.06]", text: "text-white" },
+  frame: { bg: "bg-white/6", text: "text-white" },
   generic: { bg: "bg-slate-200", text: "text-[#061018]" },
 };
 
@@ -110,7 +110,7 @@ export function WalletSelector({
     return (
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.07] bg-[#0c1017] px-4 py-2.5 text-sm font-medium text-[#c9d4e0] transition hover:bg-[#0c1017]/[0.04]"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/7 bg-[#171717] px-4 py-2.5 text-sm font-medium text-[#c9d4e0] transition hover:bg-white/5"
         title="Switch wallet"
       >
         <Wallet size={15} className="text-[#38bdf8]" />
@@ -138,7 +138,7 @@ export function WalletSelector({
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-md rounded-2xl border border-white/[0.07] bg-[#0c1017] p-6 shadow-xl"
+            className="w-full max-w-md rounded-2xl border border-white/7 bg-[#171717] p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -154,7 +154,7 @@ export function WalletSelector({
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close wallet picker"
-                className="rounded-lg p-1.5 text-[#4f5868] transition hover:bg-[#0c1017]/[0.05] hover:text-[#c9d4e0]"
+                className="rounded-lg p-1.5 text-[#4f5868] transition hover:bg-white/8 hover:text-[#c9d4e0]"
               >
                 <X size={18} />
               </button>
@@ -162,7 +162,7 @@ export function WalletSelector({
 
             <div className="mt-5 space-y-2">
               {wallets.length === 0 && (
-                <div className="rounded-xl border border-white/[0.07] bg-[#0c1017] p-4 text-sm text-[#8b93a7]">
+                <div className="rounded-xl border border-white/7 bg-[#171717] p-4 text-sm text-[#8b93a7]">
                   No wallet extension detected. Install{" "}
                   <a
                     href="https://chromewebstore.google.com/detail/pelagus/nhccebmfjcbhghphpclcfdkkekheegop"
@@ -182,7 +182,7 @@ export function WalletSelector({
                   key={wallet.id}
                   onClick={() => void connect(wallet)}
                   disabled={busy !== null}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-[#0c1017] p-3 text-left transition hover:border-[#38bdf8]/15 hover:bg-[#38bdf8]/[0.06]/60 disabled:opacity-60"
+                  className="flex w-full items-center gap-3 rounded-xl border border-white/7 bg-[#171717] p-3 text-left transition hover:border-[#38bdf8]/15 hover:bg-[#38bdf8]/6/60 disabled:opacity-60"
                 >
                   <WalletMark brand={wallet.brand} />
 

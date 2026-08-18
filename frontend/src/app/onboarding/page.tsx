@@ -77,7 +77,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0c1017] px-5 py-8 text-white">
+    <main className="min-h-screen bg-[#171717] px-5 py-8 text-white">
       <div className="mx-auto max-w-2xl">
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -100,7 +100,7 @@ export default function OnboardingPage() {
                       ? "bg-[#38bdf8] text-[#061018]"
                       : index === step
                         ? "border border-[#38bdf8]/40 text-white"
-                        : "border border-white/[0.07] text-[#8b93a7]"
+                        : "border border-white/7 text-[#8b93a7]"
                   }`}
                 >
                   {index < step ? <Check size={13} /> : index + 1}
@@ -111,16 +111,16 @@ export default function OnboardingPage() {
               </div>
 
               {index < steps.length - 1 && (
-                <div className="mx-3 h-px flex-1 bg-[#0c1017]/[0.04]" />
+                <div className="mx-3 h-px flex-1 bg-[#171717]/4" />
               )}
             </div>
           ))}
         </div>
 
-        <div className="mt-10 rounded-2xl border border-white/[0.07] bg-[#0c1017] p-6 sm:p-8">
+        <div className="mt-10 rounded-2xl border border-white/7 bg-[#171717] p-6 sm:p-8">
           {step === 0 && (
             <>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
                 <Wallet size={21} />
               </div>
 
@@ -142,7 +142,7 @@ export default function OnboardingPage() {
                     placeholder="Quai Store"
                     name="qm-merchant-name"
                     autoComplete="off"
-                    className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
                 </div>
 
@@ -156,7 +156,7 @@ export default function OnboardingPage() {
                     placeholder="https://api.example.com/webhooks/quai"
                     name="qm-webhook-url"
                     autoComplete="off"
-                    className="h-11 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
                   />
                   <span className="mt-2 block text-xs text-[#4f5868]">
                     The relayer POSTs signed <code>payment.confirmed</code>{" "}
@@ -170,7 +170,7 @@ export default function OnboardingPage() {
 
           {step === 1 && (
             <>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
                 <Wallet size={21} />
               </div>
 
@@ -183,7 +183,7 @@ export default function OnboardingPage() {
               </p>
 
               {address ? (
-                <div className="mt-7 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.06] px-4 py-3">
+                <div className="mt-7 rounded-xl border border-emerald-400/15 bg-emerald-400/6 px-4 py-3">
                   <p className="text-xs text-[#8b93a7]">Connected (Cyprus-1)</p>
                   <p className="mt-1 break-all font-mono text-xs text-emerald-300">
                     {address}
@@ -220,7 +220,7 @@ export default function OnboardingPage() {
                 .
               </p>
 
-              <div className="mx-auto mt-6 max-w-md rounded-2xl border border-white/[0.07] bg-[#0c1017] p-4 text-left">
+              <div className="mx-auto mt-6 max-w-md rounded-2xl border border-white/7 bg-[#171717] p-4 text-left">
                 <p className="text-xs text-[#8b93a7]">Merchant ID</p>
                 <p className="mt-1 break-all font-mono text-xs text-white">
                   {merchant.merchantId}
@@ -235,7 +235,7 @@ export default function OnboardingPage() {
                   </p>
                   <button
                     onClick={copySecret}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/[0.07] px-2 py-1 text-xs text-[#8b93a7] hover:text-white"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-white/7 px-2 py-1 text-xs text-[#8b93a7] hover:text-white"
                   >
                     <Copy size={12} />
                     {copied ? "Copied" : "Copy"}

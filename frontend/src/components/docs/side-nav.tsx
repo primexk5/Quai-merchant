@@ -34,8 +34,8 @@ export function DocsSideNav({ sections }: { sections: { id: string; label: strin
             href={`#${item.id}`}
             className={`block rounded-lg px-3 py-2 text-sm transition ${
               isActive
-                ? "bg-[#38bdf8]/[0.08] text-white"
-                : "text-[#8b93a7] hover:bg-white/[0.05] hover:text-white"
+                ? "bg-[#38bdf8]/8 text-white"
+                : "text-[#8b93a7] hover:bg-white/5 hover:text-white"
             }`}
           >
             {item.label}

@@ -36,7 +36,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0c1017] px-5 py-8 text-white">
+    <main className="min-h-screen bg-[#171717] px-5 py-8 text-white">
       <div className="mx-auto max-w-md">
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -55,8 +55,8 @@ export default function LoginPage() {
           </Link>
         </header>
 
-        <div className="mt-12 rounded-3xl border border-white/[0.07] bg-[#0c1017] p-6 sm:p-8">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#38bdf8]/20 bg-[#38bdf8]/[0.08] text-[#38bdf8]">
+        <div className="mt-12 rounded-3xl border border-white/7 bg-[#171717] p-6 sm:p-8">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#38bdf8]/20 bg-[#38bdf8]/8 text-[#38bdf8]">
             <LogIn size={20} />
           </div>
 
@@ -77,7 +77,7 @@ export default function LoginPage() {
           </div>
 
           {address && (
-            <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#0c1017] px-4 py-3">
+            <div className="mt-4 rounded-xl border border-white/7 bg-[#171717] px-4 py-3">
               <p className="text-xs text-[#8b93a7]">Signing in as</p>
               <p className="mt-1 break-all font-mono text-xs text-white">
                 {address}

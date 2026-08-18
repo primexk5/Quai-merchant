@@ -93,10 +93,10 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+    <div className="rounded-2xl border border-white/7 bg-[#171717] p-5">
       <div className="mb-5 flex items-center justify-between">
         <p className="text-sm text-[#8b93a7]">{label}</p>
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/[0.06] text-[#38bdf8]">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
           {icon}
         </div>
       </div>
@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
 
           <button
             disabled
-            className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/[0.07] px-4 py-2.5 text-sm font-medium text-[#8b93a7] opacity-60"
+            className="inline-flex w-fit items-center gap-2 rounded-lg border border-white/7 px-4 py-2.5 text-sm font-medium text-[#8b93a7] opacity-60"
             title="CSV export is a demo placeholder"
           >
             <Download size={16} />
@@ -175,7 +175,7 @@ export default function AnalyticsPage() {
 
         <section className="mt-6 space-y-6">
           {/* Daily volume */}
-          <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+          <div className="rounded-2xl border border-white/7 bg-[#171717] p-5">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">Daily volume</h2>
@@ -196,7 +196,7 @@ export default function AnalyticsPage() {
                       <span className="w-20 shrink-0 font-mono text-[11px] text-[#8b93a7]">
                         {point.day.slice(5)}
                       </span>
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#0c1017]/[0.04]">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#171717]/4">
                         <div
                           className="h-full rounded-full bg-[#38bdf8]"
                           style={{
@@ -214,7 +214,7 @@ export default function AnalyticsPage() {
           </div>
 
           {/* Status breakdown */}
-          <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+          <div className="rounded-2xl border border-white/7 bg-[#171717] p-5">
             <div className="mb-6">
               <h2 className="font-semibold">Delivery status</h2>
               <p className="mt-1 text-xs text-[#8b93a7]">All time</p>

@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
+import QRCode from "react-qr-code";
 import {
   newOrderId,
   parseQuai,
@@ -75,7 +76,7 @@ export default function CheckoutDemoPage() {
 
   if (stage.name === "done") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#0c1017] px-5 text-white">
+      <main className="flex min-h-screen items-center justify-center bg-[#171717] px-5 text-white">
         <div className="w-full max-w-md text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
             <Check size={28} />
@@ -90,7 +91,7 @@ export default function CheckoutDemoPage() {
             delivered the payment webhook to the merchant.
           </p>
 
-          <div className="mt-6 space-y-2 rounded-2xl border border-white/[0.07] bg-[#0c1017] p-4 text-left font-mono text-xs text-[#8b93a7]">
+          <div className="mt-6 space-y-2 rounded-2xl border border-white/7 bg-[#171717] p-4 text-left font-mono text-xs text-[#8b93a7]">
             <p className="break-all">
               tx: <span className="text-white">{stage.txHash}</span>
             </p>
@@ -125,7 +126,7 @@ export default function CheckoutDemoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0c1017] px-5 py-10 text-white">
+    <main className="min-h-screen bg-[#171717] px-5 py-10 text-white">
       <div className="mx-auto max-w-lg">
         <Link
           href="/"
@@ -135,7 +136,7 @@ export default function CheckoutDemoPage() {
           QuaiMerchant
         </Link>
 
-        <div className="mt-10 rounded-3xl border border-white/[0.07] bg-[#0c1017] p-6 sm:p-8">
+        <div className="mt-10 rounded-3xl border border-white/7 bg-[#171717] p-6 sm:p-8">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Quai Store</p>
@@ -145,7 +146,7 @@ export default function CheckoutDemoPage() {
             <Logo className="h-10 w-10" />
           </div>
 
-          <div className="my-7 h-px bg-[#0c1017]/[0.04]" />
+          <div className="my-7 h-px bg-[#171717]/4" />
 
           <div className="text-center">
             <p className="text-sm text-[#8b93a7]">Total to pay</p>
@@ -158,7 +159,7 @@ export default function CheckoutDemoPage() {
             </p>
           </div>
 
-          <div className="mt-8 rounded-2xl border border-white/[0.07] bg-[#0c1017] p-4">
+          <div className="mt-8 rounded-2xl border border-white/7 bg-[#171717] p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">Quai Network</p>
@@ -172,20 +173,32 @@ export default function CheckoutDemoPage() {
           </div>
 
           {stage.name === "connect" && (
-            <div className="mt-4">
-              <WalletSelector
-                connectedAddress={null}
-                onConnected={(address) =>
-                  setStage({ name: "ready", merchant: address })
-                }
-                label="Connect wallet to pay"
-              />
+            <div className="mt-6 flex flex-col items-center rounded-2xl border border-white/7 bg-[#171717] p-6">
+              <div className="mb-5 rounded-2xl bg-white p-3 shadow-md">
+                <QRCode
+                  value={`quai:0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7?amount=${AMOUNT_QUAI}`}
+                  size={160}
+                  level="M"
+                />
+              </div>
+              <p className="mb-5 text-center text-sm text-[#8b93a7]">
+                Scan with your mobile wallet, or connect extension below.
+              </p>
+              <div className="w-full">
+                <WalletSelector
+                  connectedAddress={null}
+                  onConnected={(address) =>
+                    setStage({ name: "ready", merchant: address })
+                  }
+                  label="Connect wallet to pay"
+                />
+              </div>
             </div>
           )}
 
           {stage.name === "ready" && (
             <>
-              <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#0c1017] px-4 py-3">
+              <div className="mt-4 rounded-xl border border-white/7 bg-[#171717] px-4 py-3">
                 <p className="text-xs text-[#8b93a7]">
                   Connected (merchant + payer)
                 </p>
@@ -214,14 +227,14 @@ export default function CheckoutDemoPage() {
           )}
 
           {stage.name === "signing" && (
-            <div className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.07] bg-[#0c1017] py-3.5 text-sm text-[#8b93a7]">
+            <div className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-white/7 bg-[#171717] py-3.5 text-sm text-[#8b93a7]">
               <Loader2 size={16} className="animate-spin text-[#38bdf8]" />
               {stage.step}
             </div>
           )}
 
           {stage.name === "awaiting" && (
-            <div className="mt-4 flex w-full flex-col items-center gap-2 rounded-xl border border-white/[0.07] bg-[#0c1017] py-3.5 text-sm text-[#8b93a7]">
+            <div className="mt-4 flex w-full flex-col items-center gap-2 rounded-xl border border-white/7 bg-[#171717] py-3.5 text-sm text-[#8b93a7]">
               <Loader2 size={16} className="animate-spin text-[#38bdf8]" />
               Payment sent — waiting for relayer confirmation…
               <span className="text-xs">

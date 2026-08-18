@@ -23,8 +23,8 @@ export function CodeBlock({
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-[#0a0e15]">
-      <div className="flex items-center justify-between border-b border-white/[0.05] bg-white/[0.03] px-4 py-2.5">
+    <div className="overflow-hidden rounded-2xl border border-white/6 bg-[#171717]">
+      <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.03] px-4 py-2.5">
         <span className="text-xs font-medium text-[#8b93a7]">
           {label ?? "Code"}
         </span>
@@ -32,7 +32,7 @@ export function CodeBlock({
           type="button"
           onClick={copy}
           aria-label="Copy code"
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[#8b93a7] transition hover:bg-white/[0.06] hover:text-white"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[#8b93a7] transition hover:bg-white/6 hover:text-white"
         >
           {copied ? (
             <Check size={13} className="text-emerald-300" />

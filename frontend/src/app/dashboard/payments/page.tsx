@@ -59,7 +59,7 @@ export default function PaymentsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search order, tx, payer…"
-              className="h-10 w-full rounded-xl border border-white/[0.07] bg-[#0c1017] pl-9 pr-3 text-sm text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+              className="h-10 w-full rounded-xl border border-white/7 bg-[#171717] pl-9 pr-3 text-sm text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
             />
           </div>
 
@@ -71,7 +71,7 @@ export default function PaymentsPage() {
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize transition ${
                   status === s
                     ? "bg-[#38bdf8] text-[#061018]"
-                    : "border border-white/[0.07] text-[#8b93a7] hover:bg-[#0c1017]/[0.04]"
+                    : "border border-white/7 text-[#8b93a7] hover:bg-white/5"
                 }`}
               >
                 {s}
@@ -83,15 +83,15 @@ export default function PaymentsPage() {
         {loading ? (
           <p className="text-sm text-[#8b93a7]">Loading…</p>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl border border-white/[0.07] bg-[#0c1017] px-5 py-14 text-center text-sm text-[#8b93a7]">
+          <div className="rounded-2xl border border-white/7 bg-[#171717] px-5 py-14 text-center text-sm text-[#8b93a7]">
             No payments match your filters.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0c1017]">
+          <div className="overflow-hidden rounded-2xl border border-white/7 bg-[#171717]">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-white/[0.07] bg-[#0c1017]">
+                  <tr className="border-b border-white/7 bg-[#171717]">
                     <th className="px-5 py-3 font-medium text-[#8b93a7]">
                       Amount
                     </th>
@@ -110,9 +110,9 @@ export default function PaymentsPage() {
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.06]">
+                <tbody className="divide-y divide-white/6">
                   {filtered.map((d) => (
-                    <tr key={d.id} className="hover:bg-[#0c1017]/[0.04]">
+                    <tr key={d.id} className="hover:bg-white/5">
                       <td className="px-5 py-3.5 font-medium">
                         {formatDeliveryAmount(
                           d.payload.data.net,

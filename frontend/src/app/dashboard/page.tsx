@@ -107,8 +107,8 @@ export default function DashboardPage() {
         </div>
 
         <div className="mt-8 space-y-6">
-          <section className="overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0c1017]">
-            <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-5">
+          <section className="overflow-hidden rounded-2xl border border-white/7 bg-[#171717]">
+            <div className="flex items-center justify-between border-b border-white/7 px-5 py-5">
               <div>
                 <h2 className="font-semibold">Recent payments</h2>
                 <p className="mt-1 text-xs text-[#8b93a7]">
@@ -130,7 +130,7 @@ export default function DashboardPage() {
                 No payments yet — create one from the checkout demo.
               </div>
             ) : (
-              <div className="divide-y divide-white/[0.06]">
+              <div className="divide-y divide-white/6">
                 {deliveries.slice(0, 5).map((d) => (
                   <div
                     key={d.id}
@@ -171,7 +171,7 @@ export default function DashboardPage() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-white/[0.07] bg-[#0c1017] p-5">
+          <section className="rounded-2xl border border-white/7 bg-[#171717] p-5">
             <h2 className="font-semibold">Status breakdown</h2>
             <p className="mt-1 text-xs text-[#8b93a7]">All time</p>
 
@@ -192,7 +192,7 @@ export default function DashboardPage() {
                     <span className="capitalize text-[#8b93a7]">{label}</span>
                     <span className={`font-mono ${color}`}>{count}</span>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[#0c1017]/[0.04]">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-[#171717]/4">
                     <div
                       className={`h-full rounded-full ${color} ${
                         deliveries.length === 0 ? "w-0" : ""
