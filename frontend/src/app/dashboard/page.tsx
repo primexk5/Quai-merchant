@@ -23,11 +23,13 @@ export default function DashboardPage() {
 
   const delivered = deliveries.filter((d) => d.status === "delivered");
   const ZERO = 0n;
-  const totalQuaiWei = delivered.reduce(
+  // Every delivery record corresponds to a payment settled on-chain (payment.confirmed), so the
+  // totals count all of them regardless of webhook delivery outcome.
+  const totalQuaiWei = deliveries.reduce(
     (sum, d) => sum + (d.payload.data.token === "0x0000000000000000000000000000000000000000" ? BigInt(d.payload.data.net) : ZERO),
     ZERO,
   );
-  const totalTokenUnits = delivered.reduce(
+  const totalTokenUnits = deliveries.reduce(
     (sum, d) => sum + (d.payload.data.token !== "0x0000000000000000000000000000000000000000" ? BigInt(d.payload.data.net) : ZERO),
     ZERO,
   );
@@ -93,9 +95,9 @@ export default function DashboardPage() {
           />
 
           <StatCard
-            label="Success rate"
+            label="Webhook success rate"
             value={`${successRate}%`}
-            description="Delivered / total"
+            description="Delivered / total settlements"
             icon={TrendingUp}
           />
 
@@ -152,15 +154,20 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-3">
-                      <StatusBadge
-                        status={
-                          d.status === "delivered"
-                            ? "confirmed"
-                            : d.status === "failed"
-                              ? "failed"
-                              : "pending"
-                        }
-                      />
+                      <div className="flex flex-col items-end gap-1">
+                        <StatusBadge status="confirmed" />
+                        <span
+                          className={`text-[11px] ${
+                            d.status === "delivered"
+                              ? "text-[#4f5868]"
+                              : d.status === "failed"
+                                ? "text-red-400"
+                                : "text-amber-400"
+                          }`}
+                        >
+                          webhook {d.status}
+                        </span>
+                      </div>
                       <a
                         href={`${ORCHARD_SCAN}${d.payload.data.txHash}`}
                         target="_blank"

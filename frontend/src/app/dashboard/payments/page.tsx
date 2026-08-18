@@ -39,7 +39,8 @@ export default function PaymentsPage() {
             Payment history
           </h1>
           <p className="mt-2 text-sm text-[#8b93a7]">
-            Every webhook delivery recorded by the relayer.
+            Every row is a confirmed on-chain settlement. The status filter
+            tracks webhook delivery to your endpoint.
           </p>
         </div>
 
@@ -129,15 +130,21 @@ export default function PaymentsPage() {
                         {formatTimestamp(d.createdAt)}
                       </td>
                       <td className="px-5 py-3.5">
-                        <StatusBadge
-                          status={
-                            d.status === "delivered"
-                              ? "confirmed"
-                              : d.status === "failed"
-                                ? "failed"
-                                : "pending"
-                          }
-                        />
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusBadge status="confirmed" />
+                          <span
+                            className={`text-[11px] ${
+                              d.status === "delivered"
+                                ? "text-[#4f5868]"
+                                : d.status === "failed"
+                                  ? "text-red-400"
+                                  : "text-amber-400"
+                            }`}
+                          >
+                            webhook {d.status}
+                            {d.status === "failed" ? ` · ${d.attempts} attempts` : ""}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <a
