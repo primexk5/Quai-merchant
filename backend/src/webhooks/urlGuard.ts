@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import ipaddr from 'ipaddr.js';
 
 /**
  * SSRF protection for merchant-supplied webhook URLs.
@@ -13,7 +14,10 @@ import { isIP } from 'node:net';
  *      require https and reject obviously-internal hosts.
  *   2. {@link assertResolvesPublic} — an async check run again immediately before every delivery:
  *      resolve the host and refuse if it maps to a private/reserved address. This is what closes the
- *      DNS-rebinding hole (a name that was public at onboarding but later re-points inward).
+ *      DNS-rebinding hole (a name that was public at onboarding but later re-points inward). The
+ *      dispatcher additionally performs the resolution and the connection atomically through a
+ *      single `lookup` (see webhooks/httpPost.ts), so a rebinding race cannot slip a private address
+ *      through between the check and the dial.
  *
  * Both are bypassed when `allowInsecure` is true, the dev/test escape hatch controlled by
  * `WEBHOOK_ALLOW_INSECURE_URLS` (so a local `http://localhost:9000` receiver still works).
@@ -44,6 +48,7 @@ function ipv4IsPrivate(a: number, b: number, c: number): boolean {
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 — private
   if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24 — IETF protocol assignments
   if (a === 192 && b === 0 && c === 2) return true; // 192.0.2.0/24 — TEST-NET-1
+  if (a === 192 && b === 88 && c === 99) return true; // 192.88.99.0/24 — 6to4 relay anycast
   if (a === 192 && b === 168) return true; // 192.168.0.0/16 — private
   if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 — benchmarking
   if (a === 198 && b === 51 && c === 100) return true; // 198.51.100.0/24 — TEST-NET-2
@@ -52,10 +57,23 @@ function ipv4IsPrivate(a: number, b: number, c: number): boolean {
   return false;
 }
 
+/** Validate the 4-byte tail of an IPv4-embedded IPv6 address (mapped/compatible/NAT64 forms). */
+function ipv4FromLastHextets(parts: number[]): boolean {
+  const tail = parts.slice(-2);
+  const hi = tail[0];
+  const lo = tail[1];
+  if (hi === undefined || lo === undefined) return true;
+  return ipv4IsPrivate(hi >> 8, hi & 0xff, lo >> 8);
+}
+
 /**
  * True if an IP literal (v4 or v6) is in a private/loopback/link-local/ULA/reserved range — i.e.
  * anything that could reach the relayer host's own network rather than the public internet. An
  * unparseable input is treated as unsafe (fail closed).
+ *
+ * IPv6 is parsed properly (ipaddr.js) so hex-encoded IPv4-embedded forms cannot sneak through:
+ * `::ffff:7f00:1`, `::7f00:1`, `64:ff9b::7f00:1`, `2002:7f00:1::1`, `2001::4136:…` (Teredo) all
+ * resolve to their embedded IPv4 and are classified by the same table as plain IPv4.
  */
 export function isPrivateIp(ip: string): boolean {
   const kind = isIP(ip);
@@ -64,19 +82,41 @@ export function isPrivateIp(ip: string): boolean {
     return o ? ipv4IsPrivate(o[0], o[1], o[2]) : true;
   }
   if (kind === 6) {
-    let v6 = ip.toLowerCase();
-    const pct = v6.indexOf('%'); // strip a zone id, e.g. fe80::1%eth0
-    if (pct !== -1) v6 = v6.slice(0, pct);
-    // IPv4-mapped / -compatible forms (::ffff:127.0.0.1, ::127.0.0.1): validate the embedded v4.
-    const tail = v6.slice(v6.lastIndexOf(':') + 1);
-    if (tail.includes('.')) return isPrivateIp(tail);
-    if (v6 === '::' || v6 === '::1') return true; // unspecified / loopback
-    if (v6.startsWith('fe8') || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb')) {
-      return true; // fe80::/10 — link-local
+    let addr: ipaddr.IPv6;
+    try {
+      // Strip a zone id (e.g. fe80::1%eth0) before parsing — DNS answers never carry one, and
+      // ipaddr rejects the "%" form on some inputs.
+      addr = ipaddr.parse((ip.split('%')[0] ?? ip)) as ipaddr.IPv6;
+    } catch {
+      return true; // fail closed
     }
-    if (v6.startsWith('fc') || v6.startsWith('fd')) return true; // fc00::/7 — unique-local
-    if (v6.startsWith('ff')) return true; // ff00::/8 — multicast
-    return false;
+    const range = addr.range();
+    if (['unspecified', 'loopback', 'linkLocal', 'uniqueLocal', 'multicast', 'reserved'].includes(range)) {
+      return true;
+    }
+    if (range === 'ipv4Mapped') {
+      return isPrivateIp(addr.toIPv4Address().toNormalizedString());
+    }
+    // IPv4-compatible (::x.x.x.x, deprecated but dialable on Linux): first six hextets are zero.
+    if (addr.parts.slice(0, 6).every((h) => h === 0)) {
+      return ipv4FromLastHextets(addr.parts);
+    }
+    // rfc6145 (::ffff:0:0/96) and rfc6052 (64:ff9b::/96) NAT64: IPv4 in the last 4 bytes.
+    if (range === 'rfc6145' || range === 'rfc6052') {
+      return ipv4FromLastHextets(addr.parts);
+    }
+    if (range === '6to4') {
+      // 2002:V4a:V4b::/48 — the embedded IPv4 lives in hextets 2-3.
+      const a = addr.parts[2];
+      const b = addr.parts[3];
+      if (a === undefined || b === undefined) return true;
+      return ipv4IsPrivate(a >> 8, a & 0xff, b >> 8);
+    }
+    if (range === 'teredo') {
+      // 2001::/32 — the client's IPv4 is the last 4 bytes.
+      return ipv4FromLastHextets(addr.parts);
+    }
+    return false; // 'unicast' — globally routable
   }
   return true; // not a valid IP literal
 }

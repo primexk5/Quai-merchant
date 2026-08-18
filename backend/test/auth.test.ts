@@ -18,6 +18,8 @@ const cfg = {
   ADMIN_API_KEY: ADMIN_KEY,
   CORS_ORIGINS: '*',
   CHAIN_ID: 9,
+  LOGIN_REALM: 'quai-merchant',
+  TRUST_PROXY: 0,
   PAYWITHQUAI_ADDRESS: CONTRACT,
 } as unknown as Config;
 
@@ -60,14 +62,25 @@ async function req(base: string, path: string, init?: RequestInit): Promise<{ st
 const auth = (key: string) => ({ authorization: `Bearer ${key}` });
 const jsonHeaders = { 'content-type': 'application/json' };
 
-/** Fresh login message signed by `w` — the message is addressed to w.address. */
+/** Fetch a fresh challenge for `w.address` and sign it — the real client flow. */
 async function signLogin(
+  base: string,
   w: Wallet,
-  tsOffsetS = 0,
 ): Promise<{ address: string; message: string; signature: string }> {
-  const ts = Math.floor(Date.now() / 1000) + tsOffsetS;
-  const message = `quai-merchant-login:${w.address}:${ts}`;
-  return { address: w.address, message, signature: await w.signMessage(message) };
+  const challenge = await fetch(`${base}/v1/auth/challenge`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ address: w.address }),
+  });
+  const body = (await challenge.json()) as { message?: string; nonce?: string };
+  if (challenge.status !== 200 || !body.message) {
+    throw new Error(`challenge failed: ${challenge.status}`);
+  }
+  return {
+    address: w.address,
+    message: body.message,
+    signature: await w.signMessage(body.message),
+  };
 }
 
 /** Onboard the test wallet as a merchant (admin route), returning the webhook secret. */
@@ -102,6 +115,7 @@ function seedDelivery(store: JsonStore, merchantId: string, over: Partial<Webhoo
         txHash: '0x' + 'cd'.repeat(32),
         blockNumber: 10,
         timestamp: 1,
+        nonce: 1,
       },
     },
     status: 'pending',
@@ -135,8 +149,9 @@ function otherMerchantDelivery(store: JsonStore): WebhookDelivery {
         fee: '5000',
         net: '995000',
         txHash: '0x' + 'ef'.repeat(32),
-        blockNumber: 11,
-        timestamp: 2,
+        blockNumber: 10,
+        timestamp: 1,
+        nonce: 1,
       },
     },
   });
@@ -155,7 +170,7 @@ describe('POST /v1/auth/login', () => {
   });
 
   it('issues a session token for a valid wallet signature', async () => {
-    const { message, signature, address } = await signLogin(wallet);
+    const { message, signature, address } = await signLogin(base, wallet);
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,
@@ -168,10 +183,23 @@ describe('POST /v1/auth/login', () => {
     expect((res.body.expiresAt as number)).toBeGreaterThan(Date.now());
   });
 
+  it('sets an HttpOnly session cookie alongside the bearer token', async () => {
+    const { message, signature, address } = await signLogin(base, wallet);
+    const res = await fetch(`${base}/v1/auth/login`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/qmsession=[0-9a-f]+/);
+    expect(setCookie).toMatch(/HttpOnly/);
+    expect(setCookie).toMatch(/Max-Age=/);
+  });
+
   it('rejects a signature from a different wallet', async () => {
     const other = freshRandomWallet();
-    const ts = Math.floor(Date.now() / 1000);
-    const message = `quai-merchant-login:${merchantAddress}:${ts}`;
+    // Challenge issued for the MERCHANT address, signed by a different wallet.
+    const { message } = await signLogin(base, wallet);
     const signature = await other.signMessage(message);
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
@@ -179,42 +207,59 @@ describe('POST /v1/auth/login', () => {
       body: JSON.stringify({ address: merchantAddress, message, signature }),
     });
     expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/signature does not match/i);
+    expect(res.body.error).toMatch(/invalid credentials/i);
   });
 
   it('rejects a message not addressed to the claimed wallet', async () => {
     const other = freshRandomWallet();
-    const { signature } = await signLogin(other);
+    const { message, signature } = await signLogin(base, other);
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,
-      body: JSON.stringify({ address: merchantAddress, message: `quai-merchant-login:${other.address}:${Math.floor(Date.now() / 1000)}`, signature }),
+      body: JSON.stringify({ address: merchantAddress, message, signature }),
     });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/does not match/i);
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/invalid credentials/i);
   });
 
-  it('rejects a stale (replayed) login message', async () => {
-    const { message, signature, address } = await signLogin(wallet, -600);
-    const res = await req(base, '/v1/auth/login', {
+  it('rejects a replayed login — the nonce is single-use', async () => {
+    const { message, signature, address } = await signLogin(base, wallet);
+    const first = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({ address, message, signature }),
     });
-    expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/expired/i);
+    expect(first.status).toBe(200);
+    const replay = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    expect(replay.status).toBe(401);
+    expect(replay.body.error).toMatch(/invalid credentials/i);
   });
 
-  it('rejects login for an address with no registered merchant', async () => {
+  it('rejects a challenge bound to a different chain id or realm', async () => {
+    const { message, signature, address } = await signLogin(base, wallet);
+    const forged = message.replace(/:9:quai-merchant$/, ':15000:quai-merchant');
+    const res = await req(base, '/v1/auth/login', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message: forged, signature: await wallet.signMessage(forged) }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('answers uniformly 401 for unregistered addresses (no enumeration)', async () => {
     const stranger = freshRandomWallet();
-    const { message, signature } = await signLogin(stranger);
+    const { message, signature } = await signLogin(base, stranger);
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify({ address: stranger.address, message, signature }),
     });
-    expect(res.status).toBe(404);
-    expect(res.body.error).toMatch(/onboarding/i);
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/invalid credentials/i);
   });
 
   it('rejects malformed bodies and garbage signatures', async () => {
@@ -225,13 +270,12 @@ describe('POST /v1/auth/login', () => {
     });
     expect(badSig.status).toBe(400);
 
-    const { address } = await signLogin(wallet);
     const garbage = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,
-      body: JSON.stringify({ address, message: 'garbage', signature: '0xdeadbeef' }),
+      body: JSON.stringify({ address: merchantAddress, message: 'garbage', signature: '0xdeadbeef' }),
     });
-    expect(garbage.status).toBe(400);
+    expect(garbage.status).toBe(401);
   });
 });
 
@@ -243,7 +287,7 @@ describe('session-protected routes', () => {
   beforeAll(async () => {
     ({ base, store } = await startApp());
     await onboardMerchant(base);
-    const { message, signature, address } = await signLogin(wallet);
+    const { message, signature, address } = await signLogin(base, wallet);
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,

@@ -2,7 +2,7 @@ import type { Store } from '../store/index.js';
 import type { Config } from '../config.js';
 import type { WebhookDelivery } from '../types.js';
 import { signPayload, SIGNATURE_HEADER } from './signer.js';
-import { assertResolvesPublic, UnsafeWebhookUrlError } from './urlGuard.js';
+import { postWebhook, type PostOptions, type PostResult } from './httpPost.js';
 import { backoffMs } from './backoff.js';
 import { sleep } from '../util/sleep.js';
 import { log } from '../logger.js';
@@ -12,6 +12,9 @@ const logger = log('dispatcher');
 /** How long a delivery for a deactivated merchant stays parked before it is re-checked, so a
  *  re-activated merchant is picked up again without the sweep hot-looping every second. */
 const DEACTIVATED_RECHECK_MS = 3_600_000;
+
+/** Transport for one delivery attempt — injectable so tests never open real sockets. */
+export type PostFn = (opts: PostOptions) => Promise<PostResult>;
 
 /**
  * Delivers queued webhooks to merchant endpoints with signed bodies, at-least-once semantics, and
@@ -28,6 +31,7 @@ export class WebhookDispatcher {
     private readonly store: Store,
     private readonly cfg: Config,
     private readonly now: () => number = () => Date.now(),
+    private readonly post: PostFn = postWebhook,
   ) {}
 
   start(): void {
@@ -77,8 +81,7 @@ export class WebhookDispatcher {
     const merchant = this.store.getMerchantById(d.merchantId);
     if (!merchant) {
       // Merchant record gone (deleted/moved off this store): nothing valid to deliver to.
-      this.store.updateDelivery({
-        ...d,
+      this.commit(d, {
         status: 'failed',
         lastError: 'merchant no longer registered',
         updatedAt: this.now(),
@@ -91,7 +94,7 @@ export class WebhookDispatcher {
       // attempt spent, no tight retry loop — the sweep only re-picks it up once per re-check
       // interval), so it resumes automatically if the merchant is re-activated.
       const nextCheck = this.now() + DEACTIVATED_RECHECK_MS;
-      this.store.updateDelivery({ ...d, nextAttemptAt: nextCheck, updatedAt: this.now() });
+      this.commit(d, { nextAttemptAt: nextCheck, updatedAt: this.now() });
       logger.warn(
         { id: d.id, merchantId: merchant.merchantId },
         'merchant deactivated — delivery held until next re-check',
@@ -103,77 +106,67 @@ export class WebhookDispatcher {
     const tsSec = Math.floor(this.now() / 1000);
     const signature = signPayload(merchant.webhookSecret, rawBody, tsSec);
 
-    let ok = false;
-    let errText: string | null = null;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.cfg.WEBHOOK_TIMEOUT_MS);
-    try {
-      // SSRF guard: re-resolve the host right before dialing and refuse private/reserved targets.
-      // Runs every attempt, so a hostname that later re-points at an internal address (DNS
-      // rebinding) is blocked even though it passed the check at onboarding.
-      await assertResolvesPublic(new URL(d.url).hostname, this.cfg.WEBHOOK_ALLOW_INSECURE_URLS);
-      const res = await fetch(d.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          [SIGNATURE_HEADER]: signature,
-          'x-paywithquai-event': d.payload.type,
-          'x-paywithquai-delivery': d.id,
-        },
-        body: rawBody,
-        signal: controller.signal,
-        redirect: 'manual', // never follow a 3xx — its Location could point at an internal host
-      });
-      // With redirect:'manual', a 3xx is surfaced (as an opaqueredirect, or a real 3xx status on
-      // some runtimes) rather than followed. Treat any redirect as a delivery failure.
-      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-        errText = 'unexpected redirect (not followed)';
-      } else {
-        ok = res.ok;
-        if (!ok) errText = `HTTP ${res.status}`;
-      }
-    } catch (err) {
-      if (err instanceof UnsafeWebhookUrlError) errText = err.message;
-      else errText = (err as Error).name === 'AbortError' ? 'timeout' : (err as Error).message;
-    } finally {
-      clearTimeout(timeout);
-    }
+    // SSRF guard runs INSIDE the transport: one shared DNS resolution feeds both the public-IP
+    // validation and the socket dial (no TOCTOU window), redirects are never followed, and
+    // non-https targets are refused unless WEBHOOK_ALLOW_INSECURE_URLS is set.
+    const result = await this.post({
+      url: d.url,
+      headers: {
+        'content-type': 'application/json',
+        [SIGNATURE_HEADER]: signature,
+        'x-paywithquai-event': d.payload.type,
+        'x-paywithquai-delivery': d.id,
+      },
+      body: rawBody,
+      timeoutMs: this.cfg.WEBHOOK_TIMEOUT_MS,
+      allowInsecure: this.cfg.WEBHOOK_ALLOW_INSECURE_URLS,
+    });
 
     const attempts = d.attempts + 1;
     const nowMs = this.now();
-    if (ok) {
-      this.store.updateDelivery({
-        ...d,
-        status: 'delivered',
-        attempts,
-        lastError: null,
-        updatedAt: nowMs,
-      });
+    if (result.ok) {
+      this.commit(d, { status: 'delivered', attempts, lastError: null, updatedAt: nowMs });
       logger.info({ id: d.id, merchantId: d.merchantId, attempts }, 'webhook delivered');
       return;
     }
 
     if (attempts >= this.cfg.WEBHOOK_MAX_ATTEMPTS) {
-      this.store.updateDelivery({
-        ...d,
-        status: 'failed',
-        attempts,
-        lastError: errText,
-        updatedAt: nowMs,
-      });
-      logger.error({ id: d.id, merchantId: d.merchantId, attempts, errText }, 'webhook permanently failed');
+      this.commit(d, { status: 'failed', attempts, lastError: result.error, updatedAt: nowMs });
+      logger.error({ id: d.id, merchantId: d.merchantId, attempts, errText: result.error }, 'webhook permanently failed');
       return;
     }
 
     const delay = backoffMs(attempts, this.cfg.WEBHOOK_BASE_BACKOFF_MS, this.cfg.WEBHOOK_MAX_BACKOFF_MS);
-    this.store.updateDelivery({
-      ...d,
+    this.commit(d, {
       status: 'pending',
       attempts,
-      lastError: errText,
+      lastError: result.error,
       nextAttemptAt: nowMs + delay,
       updatedAt: nowMs,
     });
-    logger.warn({ id: d.id, attempts, errText, retryInMs: delay }, 'webhook failed, will retry');
+    logger.warn({ id: d.id, attempts, errText: result.error, retryInMs: delay }, 'webhook failed, will retry');
+  }
+
+  /**
+   * Persist a state transition only if the delivery was not mutated concurrently (e.g. by the
+   * admin retry endpoint re-queueing it while this attempt was in flight). Without the CAS, a
+   * stale in-flight attempt could clobber the retry's reset with its own pre-retry snapshot.
+   */
+  private commit(d: WebhookDelivery, patch: Partial<WebhookDelivery>): void {
+    const updated: WebhookDelivery = { ...d, ...patch };
+    // Guard identity = the snapshot this attempt started from. Anything that touched the record
+    // while the attempt was in flight (admin retry, requeue, another sweep) breaks the CAS.
+    const guard = {
+      attempts: d.attempts,
+      status: d.status,
+      nextAttemptAt: d.nextAttemptAt,
+      updatedAt: d.updatedAt,
+    };
+    if (!this.store.updateDeliveryIfCurrent(updated, guard)) {
+      logger.warn(
+        { id: d.id },
+        'delivery state changed during the attempt (e.g. admin retry) — discarding stale write',
+      );
+    }
   }
 }

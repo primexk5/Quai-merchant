@@ -4,8 +4,24 @@ import { BrowserProvider } from "quais";
 import { backendFetch } from "@/lib/payment";
 import { connectWallet, ensureQuaiNetwork, getActiveWallet } from "@/lib/wallets";
 
-const TOKEN_KEY = "quaimerchant.token";
+/**
+ * Session management for the merchant dashboard.
+ *
+ * Security model (audit fixes):
+ *  - The backend mints a single-use, chain-bound challenge nonce; the signed message
+ *    (`quai-merchant-login:<address>:<nonce>:<chainId>:<realm>`) cannot be replayed.
+ *  - The session token is held ONLY in memory — never in localStorage — so an XSS or a leaked
+ *    script can't walk off with a credential that survives a reload.
+ *  - The backend also sets an HttpOnly `qmsession` cookie; `backendFetch` sends it with
+ *    `credentials: "include"`, so API calls authenticate via the cookie even after a reload
+ *    (the in-memory token is just a fallback).
+ *  - A non-sensitive `qm.signedin` marker cookie (signed-out value, nothing secret) tells the
+ *    Next middleware / SSR which routes need the session.
+ */
+
+const TOKEN_MEMORY: { token: string | null } = { token: null };
 const ADDRESS_KEY = "quaimerchant.address";
+const MARKER_COOKIE = "qm.signedin";
 
 export interface AuthMerchant {
   merchantId: string;
@@ -23,16 +39,12 @@ export interface LoginResult {
 }
 
 function isBrowser(): boolean {
-  return typeof window !== "undefined" && typeof localStorage !== "undefined";
+  return typeof window !== "undefined" && typeof document !== "undefined";
 }
 
-export function getStoredToken(): string | null {
-  if (!isBrowser()) return null;
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+/** Session token, available only for the lifetime of the page (never persisted). */
+export function getSessionToken(): string | null {
+  return TOKEN_MEMORY.token;
 }
 
 export function getStoredAddress(): string | null {
@@ -44,13 +56,29 @@ export function getStoredAddress(): string | null {
   }
 }
 
+function hasMarkerCookie(): boolean {
+  if (!isBrowser()) return false;
+  return document.cookie.split("; ").some((c) => c.startsWith(`${MARKER_COOKIE}=1`));
+}
+
+function setMarkerCookie(): void {
+  if (!isBrowser()) return;
+  document.cookie = `${MARKER_COOKIE}=1; path=/; samesite=lax; max-age=86400`;
+}
+
+function clearMarkerCookie(): void {
+  if (!isBrowser()) return;
+  document.cookie = `${MARKER_COOKIE}=; path=/; samesite=lax; max-age=0`;
+}
+
 export function isLoggedIn(): boolean {
-  return getStoredToken() !== null;
+  return TOKEN_MEMORY.token !== null || hasMarkerCookie();
 }
 
 /**
- * Signs the login challenge with the active wallet and exchanges it for a session token.
- * The message embeds the current unix time so the backend can reject replayed signatures.
+ * Signs the login challenge with the active wallet and exchanges it for a session.
+ * The message is minted by the backend per request (single-use nonce + chain id + realm bound),
+ * so a captured signature can never be replayed.
  */
 export async function loginWithWallet(): Promise<LoginResult> {
   const wallet = getActiveWallet();
@@ -62,14 +90,25 @@ export async function loginWithWallet(): Promise<LoginResult> {
 
   const provider = new BrowserProvider(wallet.provider);
   const signer = await provider.getSigner();
-  const ts = Math.floor(Date.now() / 1000);
-  const message = `quai-merchant-login:${address}:${ts}`;
-  const signature = await signer.signMessage(message);
 
+  const challenge = await backendFetch("/v1/auth/challenge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+  const challengeBody = (await challenge.json().catch(() => null)) as {
+    message?: string;
+    error?: string;
+  } | null;
+  if (!challenge.ok || !challengeBody?.message) {
+    throw new Error(challengeBody?.error ?? `challenge failed (${challenge.status})`);
+  }
+
+  const signature = await signer.signMessage(challengeBody.message);
   const res = await backendFetch("/v1/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address, message, signature }),
+    body: JSON.stringify({ address, message: challengeBody.message, signature }),
   });
 
   let body: { token?: string; expiresAt?: number; merchant?: AuthMerchant; error?: string };
@@ -85,34 +124,48 @@ export async function loginWithWallet(): Promise<LoginResult> {
     throw new Error("login response missing token");
   }
 
+  TOKEN_MEMORY.token = body.token;
+  setMarkerCookie();
   try {
-    localStorage.setItem(TOKEN_KEY, body.token);
     localStorage.setItem(ADDRESS_KEY, address);
   } catch {
-    // storage unavailable — the session just won't survive a reload
+    // storage unavailable — the address just won't survive a reload
   }
   return { token: body.token, expiresAt: body.expiresAt ?? 0, merchant: body.merchant };
 }
 
-/** Clears the stored session; best-effort invalidates it server-side. */
-export async function logout(): Promise<void> {
-  const token = getStoredToken();
-  if (isBrowser()) {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(ADDRESS_KEY);
-    } catch {
-      // ignore
+/**
+ * After a reload the in-memory token is gone, but the HttpOnly session cookie still authenticates
+ * the merchant. Re-checks with the backend; returns the merchant when the cookie session is valid.
+ */
+export async function restoreSession(): Promise<AuthMerchant | null> {
+  if (!hasMarkerCookie()) return null;
+  try {
+    const res = await backendFetch("/v1/me", { signal: AbortSignal.timeout(10_000) });
+    if (res.ok) {
+      return (await res.json()) as AuthMerchant;
     }
+  } catch {
+    // backend unreachable — leave the marker; the dashboard shows its own error
   }
-  if (!token) return;
+  return null;
+}
+
+/** Clears the local session and invalidates it server-side (cookie + token). */
+export async function logout(): Promise<void> {
+  TOKEN_MEMORY.token = null;
+  clearMarkerCookie();
+  try {
+    localStorage.removeItem(ADDRESS_KEY);
+  } catch {
+    // ignore
+  }
   try {
     await backendFetch("/v1/auth/logout", {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
-    // server unreachable — the token is gone locally anyway
+    // server unreachable — the cookie/token are dead locally anyway
   }
 }

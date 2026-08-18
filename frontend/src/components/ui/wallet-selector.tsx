@@ -160,7 +160,7 @@ export function WalletSelector({
                   Connect a wallet
                 </h3>
                 <p className="mt-1 text-sm text-[#8b93a7]">
-                  Pick any Quai-compatible wallet in this browser.
+                  Only Blip, Pelagus and MetaMask can sign for Quai.
                 </p>
               </div>
 
@@ -185,8 +185,7 @@ export function WalletSelector({
                   >
                     Pelagus
                   </a>{" "}
-                  (Quai&apos;s official wallet) or use a wallet that supports
-                  custom networks, then reload.
+                  (Quai&apos;s official wallet) or MetaMask, then reload.
                 </div>
               )}
 
@@ -194,8 +193,9 @@ export function WalletSelector({
                 <button
                   key={wallet.id}
                   onClick={() => void connect(wallet)}
-                  disabled={busy !== null}
-                  className="flex w-full items-center gap-3 rounded-xl border border-white/7 bg-[#171717] p-3 text-left transition hover:border-[#38bdf8]/15 hover:bg-[#38bdf8]/6/60 disabled:opacity-60"
+                  disabled={busy !== null || !wallet.supportsQuai}
+                  title={wallet.supportsQuai ? undefined : "Not Quai-compatible"}
+                  className="flex w-full items-center gap-3 rounded-xl border border-white/7 bg-[#171717] p-3 text-left transition hover:border-[#38bdf8]/15 hover:bg-[#38bdf8]/6/60 disabled:opacity-60 disabled:hover:border-white/7 disabled:hover:bg-[#171717]"
                 >
                   <WalletMark brand={wallet.brand} />
 
@@ -204,9 +204,11 @@ export function WalletSelector({
                       {wallet.name}
                     </span>
                     <span className="block text-xs text-[#8b93a7]">
-                      {wallet.id === active?.id
-                        ? "Previously connected"
-                        : "Quai network ready"}
+                      {wallet.supportsQuai
+                        ? wallet.id === active?.id
+                          ? "Previously connected"
+                          : "Quai network ready"
+                        : "Not Quai-compatible — install Pelagus or Blip"}
                     </span>
                   </span>
 

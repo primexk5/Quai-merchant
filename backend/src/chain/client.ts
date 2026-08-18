@@ -34,6 +34,8 @@ export interface OnChainOrder {
   expiry: bigint;
   feeRecipient: string;
   settledAt: bigint;
+  expectedPayer: string;
+  nonce: bigint;
 }
 
 /**
@@ -146,6 +148,8 @@ export class QuaiClient {
       expiry: o.expiry as bigint,
       feeRecipient: getAddress(o.feeRecipient as string),
       settledAt: o.settledAt as bigint,
+      expectedPayer: getAddress(o.expectedPayer as string),
+      nonce: o.nonce as bigint,
     };
   }
 }

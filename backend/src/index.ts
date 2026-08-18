@@ -13,9 +13,19 @@ const boot = log('main');
 async function main(): Promise<void> {
   const cfg = loadConfig();
   boot.info(
-    { chainId: cfg.CHAIN_ID, contract: cfg.PAYWITHQUAI_ADDRESS, confirmations: cfg.CONFIRMATIONS },
+    {
+      chainId: cfg.CHAIN_ID,
+      contract: cfg.PAYWITHQUAI_ADDRESS,
+      confirmations: cfg.CONFIRMATIONS,
+      env: process.env.NODE_ENV ?? 'development',
+    },
     'starting Pay with Quai relayer',
   );
+  if (cfg.WEBHOOK_ALLOW_INSECURE_URLS) {
+    boot.warn(
+      'WEBHOOK_ALLOW_INSECURE_URLS=true — SSRF guard DISABLED (https requirement and private-address blocking skipped). Intended for local dev only; will not boot with NODE_ENV=production.',
+    );
+  }
 
   const store = new JsonStore(cfg.DATABASE_PATH);
   const client = new QuaiClient(cfg);

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ADMIN_API_KEY, backendFetch } from "@/lib/payment";
-import { getStoredToken } from "@/lib/auth";
+import { formatQuai, formatUnits } from "quais";
+import { backendFetch } from "@/lib/payment";
+import { getSessionToken } from "@/lib/auth";
 
 export interface DeliveryData {
   merchant: string;
@@ -39,10 +40,10 @@ export interface Merchant {
   createdAt: number;
 }
 
-/** Bearer token for admin calls: the session token when logged in, else the demo admin key. */
+/** Session bearer token when available in memory; the HttpOnly cookie covers the rest. */
 function adminHeaders(): Record<string, string> {
-  const token = getStoredToken();
-  return { authorization: `Bearer ${token ?? ADMIN_API_KEY}` };
+  const token = getSessionToken();
+  return token ? { authorization: `Bearer ${token}` } : {};
 }
 
 async function adminGet<T>(path: string): Promise<T> {
@@ -72,8 +73,9 @@ export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
 }
 
 /** Live deliveries + merchants from the relayer backend, auto-refreshing.
- *  Logged-in merchants see only their own data (via /v1/me); without a session the
- *  demo admin key is used to read everything. */
+ *  Logged-in merchants see only their own data (via /v1/me, cookie/token-authenticated).
+ *  Without a session the demo falls back to the server-side admin proxy (the ADMIN_API_KEY
+ *  never touches the browser). */
 export function useRelayerData(intervalMs = 8000) {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -82,7 +84,7 @@ export function useRelayerData(intervalMs = 8000) {
 
   const refresh = useCallback(async () => {
     try {
-      if (getStoredToken()) {
+      if (getSessionToken()) {
         const [me, d] = await Promise.all([
           adminGet<Merchant>("/v1/me"),
           adminGet<{ deliveries: Delivery[] }>("/v1/me/deliveries"),
@@ -90,9 +92,10 @@ export function useRelayerData(intervalMs = 8000) {
         setDeliveries(d.deliveries);
         setMerchants([me]);
       } else {
+        // Demo mode: proxied server-side with the admin key (see app/api/admin/[...path]/route.ts).
         const [d, m] = await Promise.all([
-          adminGet<{ deliveries: Delivery[] }>("/v1/deliveries"),
-          adminGet<{ merchants: Merchant[] }>("/v1/merchants"),
+          adminGet<{ deliveries: Delivery[] }>("/api/admin/deliveries"),
+          adminGet<{ merchants: Merchant[] }>("/api/admin/merchants"),
         ]);
         setDeliveries(d.deliveries);
         setMerchants(m.merchants);
@@ -117,12 +120,12 @@ export function useRelayerData(intervalMs = 8000) {
   return { deliveries, merchants, loading, error, refresh };
 }
 
+/** Exact-decimal amount formatting — Number() division loses precision on big values. */
 export function formatDeliveryAmount(net: string, token: string): string {
-  const value = BigInt(net);
   if (token === "0x0000000000000000000000000000000000000000") {
-    return `${Number(value) / 1e18} QUAI`;
+    return `${formatQuai(net)} QUAI`;
   }
-  return `${Number(value) / 1e6} mUSDQ`;
+  return `${formatUnits(net, 6)} mUSDQ`;
 }
 
 export function formatTimestamp(msOrSec: number): string {

@@ -65,6 +65,7 @@ export interface WebhookPayload {
     txHash: string;
     blockNumber: number;
     timestamp: number; // on-chain event timestamp
+    nonce: number; // per-merchant order nonce; distinguishes order-id reuse after a purge
   };
 }
 

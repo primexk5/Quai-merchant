@@ -34,8 +34,21 @@ const logger = log('api');
  */
 export function createServer(store: Store, client: QuaiClient, cfg: Config): Express {
   const app = express();
+  app.disable('x-powered-by');
+  // `req.ip` (rate-limiter keys, login logging) is only the real client address when the hop
+  // count of reverse proxies in front of the app is configured. Never set this blindly.
+  if (cfg.TRUST_PROXY > 0) app.set('trust proxy', cfg.TRUST_PROXY);
   app.use(cors(cfg.CORS_ORIGINS));
   app.use(express.json({ limit: '256kb' }));
+  // Baseline hardening: the API is JSON-only; a shared/misconfigured cache must never serve
+  // admin or merchant data to other tenants, and no page may embed it.
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
 
   app.get('/health', (_req, res) => {
     const scope = cursorScope(cfg.CHAIN_ID, cfg.PAYWITHQUAI_ADDRESS);
@@ -84,20 +97,50 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
   }));
 
   // --- merchant auth (wallet-signature login) ---
-  // Login message lifetime: the client signs "quai-merchant-login:<address>:<unixSeconds>". We
-  // accept it within a 5-minute window — enough for the user to review/sign, short enough that a
-  // captured signature can't be replayed indefinitely. Stateless: no challenge store to clean up.
-  const LOGIN_WINDOW_S = 300;
+  // Two-step login: the client first asks for a challenge (POST /v1/auth/challenge), which issues
+  // a single-use nonce bound to the address, chain id and realm, and signs the returned message.
+  // The login only accepts signatures over an unconsumed, unexpired nonce — a captured signature
+  // can never be replayed, and a signature harvested on another deployment (different CHAIN_ID or
+  // LOGIN_REALM) verifies against nothing.
+  const LOGIN_WINDOW_MS = 300_000; // nonce lifetime; also the effective signature replay window
   // Session lifetime: 24h. Sessions are opaque random tokens persisted in the store.
   const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+  // SameSite/secure for the session cookie: cross-site deployments need None+Secure (HTTPS);
+  // local dev (localhost:3001 -> localhost:8080 is same-site) works with Lax over plain HTTP.
+  const COOKIE_SECURE = process.env.NODE_ENV === 'production';
+  const COOKIE_SAME_SITE = COOKIE_SECURE ? 'None' : 'Lax';
 
+  const AddressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 20-byte hex address');
+
+  const ChallengeSchema = z.object({ address: AddressSchema });
   const LoginSchema = z.object({
-    address: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 20-byte hex address'),
+    address: AddressSchema,
     message: z.string(),
     signature: z.string(),
   });
 
-  app.post('/v1/auth/login', (req, res) => {
+  // Both unauthenticated auth endpoints are rate-limited per IP: login also runs an EC recovery
+  // (CPU) and mints store writes, so an unthrottled endpoint is a cheap DoS and oracle vector.
+  const authLimiter = rateLimit({ windowMs: LOGIN_WINDOW_MS, max: 20 });
+
+  app.post('/v1/auth/challenge', authLimiter, (req, res) => {
+    const parsed = ChallengeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
+    }
+    let address: string;
+    try {
+      address = getAddress(parsed.data.address);
+    } catch {
+      return res.status(400).json({ error: 'address fails checksum validation' });
+    }
+    const nonce = randomBytes(24).toString('hex');
+    store.createNonce(nonce, address.toLowerCase(), Date.now() + LOGIN_WINDOW_MS);
+    const message = `quai-merchant-login:${address}:${nonce}:${cfg.CHAIN_ID}:${cfg.LOGIN_REALM}`;
+    res.json({ nonce, message, expiresAt: Date.now() + LOGIN_WINDOW_MS });
+  });
+
+  app.post('/v1/auth/login', authLimiter, (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
@@ -111,15 +154,28 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       return res.status(400).json({ error: 'address fails checksum validation' });
     }
 
-    // The signed message must be the exact challenge for THIS address, freshly issued.
-    const match = /^quai-merchant-login:(0x[0-9a-fA-F]{40}):(\d+)$/.exec(message);
+    // The signed message must be the exact challenge for THIS address, freshly issued by this
+    // deployment. Everything else about a failed login answers uniformly 401 — no address
+    // enumeration, no replay oracle.
+    const match = /^quai-merchant-login:(0x[0-9a-fA-F]{40}):([0-9a-fA-F]{16,}):(\d+):([A-Za-z0-9._-]+)$/.exec(message);
     const signedAddress = match?.[1];
-    if (!match || !signedAddress || signedAddress.toLowerCase() !== address.toLowerCase()) {
-      return res.status(400).json({ error: 'login message does not match the address' });
+    const nonce = match?.[2];
+    const chainId = match?.[3];
+    const realm = match?.[4];
+    if (
+      !match ||
+      !signedAddress ||
+      signedAddress.toLowerCase() !== address.toLowerCase() ||
+      chainId !== String(cfg.CHAIN_ID) ||
+      realm !== cfg.LOGIN_REALM
+    ) {
+      return res.status(401).json({ error: 'invalid credentials' });
     }
-    const messageTs = Number(match[2]);
-    if (Number.isNaN(messageTs) || Math.abs(Date.now() / 1000 - messageTs) > LOGIN_WINDOW_S) {
-      return res.status(401).json({ error: 'login message expired — sign a fresh one' });
+
+    // Single-use: consuming the nonce makes any replay of this signature fail from here on.
+    const bound = nonce ? store.consumeNonce(nonce) : undefined;
+    if (bound !== address.toLowerCase()) {
+      return res.status(401).json({ error: 'invalid credentials' });
     }
 
     // The signature proves ownership of the wallet: the recovered signer must equal the address
@@ -128,18 +184,15 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     try {
       recovered = verifyMessage(message, signature);
     } catch {
-      return res.status(400).json({ error: 'invalid signature' });
+      return res.status(401).json({ error: 'invalid credentials' });
     }
     if (recovered.toLowerCase() !== address.toLowerCase()) {
-      return res.status(401).json({ error: 'signature does not match this address' });
+      return res.status(401).json({ error: 'invalid credentials' });
     }
 
     const merchant = store.getMerchantByAddress(address);
-    if (!merchant) {
-      return res.status(404).json({ error: 'no merchant registered for this address — complete onboarding first' });
-    }
-    if (!merchant.active) {
-      return res.status(403).json({ error: 'merchant account is disabled' });
+    if (!merchant || !merchant.active) {
+      return res.status(401).json({ error: 'invalid credentials' });
     }
 
     const now = Date.now();
@@ -151,6 +204,11 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       createdAt: now,
       expiresAt: now + SESSION_TTL_MS,
     });
+    // HttpOnly session cookie for browsers (the bearer token in the body remains for API clients).
+    res.setHeader(
+      'Set-Cookie',
+      sessionCookie('qmsession', token, SESSION_TTL_MS, COOKIE_SECURE, COOKIE_SAME_SITE),
+    );
     logger.info({ merchantId: merchant.merchantId, address }, 'merchant logged in');
     res.json({ token, expiresAt: now + SESSION_TTL_MS, merchant: publicMerchant(merchant) });
   });
@@ -160,8 +218,10 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
   const auth = requireSession(store);
 
   app.post('/v1/auth/logout', auth, (req, res) => {
-    const token = bearerToken(req);
+    const token = bearerToken(req) ?? cookieToken(req);
     if (token) store.deleteSession(token);
+    // Clear the browser cookie regardless of whether a bearer was used.
+    res.setHeader('Set-Cookie', sessionCookie('qmsession', '', 0, COOKIE_SECURE, COOKIE_SAME_SITE));
     res.sendStatus(204);
   });
 
@@ -392,10 +452,38 @@ function bearerToken(req: Request): string {
   return header.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
-/** Require a valid session token; on success the session is exposed via res.locals.session. */
+/** Extract the `qmsession` cookie value (HttpOnly session cookie set at login), if present. */
+function cookieToken(req: Request): string | undefined {
+  const header = req.headers.cookie ?? '';
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() === 'qmsession') {
+      const value = part.slice(idx + 1).trim();
+      return value ? decodeURIComponent(value) : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Set-Cookie value for the session cookie; `maxAgeMs` 0 expires it immediately. */
+function sessionCookie(name: string, value: string, maxAgeMs: number, secure: boolean, sameSite: string): string {
+  const parts = [
+    `${name}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    `Max-Age=${Math.floor(maxAgeMs / 1000)}`,
+    `SameSite=${sameSite}`,
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/** Require a valid session token (bearer header or HttpOnly cookie); on success the session is
+ *  exposed via res.locals.session. */
 function requireSession(store: Store) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const token = bearerToken(req);
+    const token = bearerToken(req) ?? cookieToken(req) ?? '';
     // getSession lazily expires tokens on access, so a stale token fails here naturally.
     const session = token ? store.getSession(token) : undefined;
     if (!session) {

@@ -30,8 +30,10 @@ contract PayWithQuaiV2Mock is PayWithQuai {
     }
 
     /// @notice Re-initializer for state introduced by V2. `reinitializer(2)` runs at most once,
-    ///         and only after the v1 `initialize` (version 1) has already run.
-    function initializeV2(string calldata note_) external reinitializer(2) {
+    ///         and only after the v1 `initialize` (version 1) has already run. Owner-only, so an
+    ///         arbitrary caller can never trigger V2 initialization on a fresh deployment and
+    ///         front-run the legit upgrade.
+    function initializeV2(string calldata note_) external reinitializer(2) onlyOwner {
         _v2().note = note_;
     }
 

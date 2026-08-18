@@ -44,12 +44,8 @@ export function verifySignature(
   if (Math.abs(nowSec - parsed.t) > toleranceSec) return false;
 
   const expected = createHmac('sha256', secret).update(`${parsed.t}.${rawBody}`).digest();
-  let received: Buffer;
-  try {
-    received = Buffer.from(parsed.v1, 'hex');
-  } catch {
-    return false;
-  }
+  if (!/^[0-9a-fA-F]{64}$/.test(parsed.v1)) return false; // exact 32-byte hex, else non-constant-time path
+  const received = Buffer.from(parsed.v1, 'hex');
   if (received.length !== expected.length) return false;
   return timingSafeEqual(received, expected);
 }

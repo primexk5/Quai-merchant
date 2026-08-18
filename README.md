@@ -75,8 +75,8 @@ The frontend builds the checkout, wraps order registration/payment in `src/lib/p
 ## Merchant flow
 
 1. **Onboard** (`/onboarding`) — name, webhook URL, and the wallet that will receive payouts. **Blip Pay** is supported natively: scan the QR code to open the Blip app (iOS & Android), or tap if on mobile.
-2. **Log in** (`/login`) — connect the registered wallet (via extension or **Blip Pay**) and sign a challenge (`quai-merchant-login:<address>:<unixSeconds>`). Sessions are opaque tokens, 24h TTL, verified with `verifyMessage` (5-minute replay window).
-3. **Dashboard** — see your payments and webhook deliveries (`/v1/me`, `/v1/me/deliveries`), edit your webhook URL, and grab the checkout snippet.
+2. **Log in** (`/login`) — connect the registered wallet (via extension or **Blip Pay**) and sign a single-use challenge (`quai-merchant-login:<address>:<nonce>:<chainId>:<realm>`) returned by `/v1/auth/challenge`. The relayer consumes the nonce (no replay), binds the session to the chain and realm, and sets an HttpOnly session cookie. The admin API key stays server-side (frontend calls go through `/api/admin/...`).
+3. **Dashboard** — see your payments and webhook deliveries (`/v1/me`, `/v1/me/deliveries`) and edit your webhook URL. The platform fee is 0.3%, deducted at settlement.
 4. **Receive webhooks** — the relayer POSTs signed `payment.confirmed` events; verify with the secret.
 
 ## Blip Pay Integration

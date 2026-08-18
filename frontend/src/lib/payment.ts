@@ -14,7 +14,6 @@ export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
 export const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS!;
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
-export const ADMIN_API_KEY = process.env.NEXT_PUBLIC_ADMIN_API_KEY!;
 
 /** Comma-separated fallback list, e.g. "http://localhost:8080,https://quai-merchant.onrender.com".
  *  Each request tries the backends in order and uses the first that is reachable. */
@@ -23,12 +22,16 @@ export const BACKEND_URLS = BACKEND_URL.split(",")
   .filter(Boolean);
 
 /** Fetch against the first reachable backend URL. Network failures fall through to the next
- *  candidate; any HTTP response (even 4xx/5xx) counts as "reached" and is returned as-is. */
+ *  candidate; any HTTP response (even 4xx/5xx) counts as "reached" and is returned as-is.
+ *
+ *  `credentials: "include"` makes the browser send (and store) the HttpOnly session cookie the
+ *  backend issues at login — cross-origin, thanks to the backend's CORS + SameSite settings.
+ *  NOTE: this module is imported by client components, so no secret may ever live here. */
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
   for (const base of BACKEND_URLS) {
     try {
-      return await fetch(`${base}${path}`, init);
+      return await fetch(`${base}${path}`, { credentials: "include", ...init });
     } catch (err) {
       lastError = err;
     }
@@ -63,6 +66,45 @@ export async function registerOrder(
   return receipt.hash;
 }
 
+/** Merchant registers an order that only `expectedPayer` may settle (anti-front-running for
+ *  prepaid/invoice flows). Zero address = anyone may pay (same as registerOrder). */
+export async function registerOrderWithPayer(
+  merchant: string,
+  orderId: string,
+  token: string,
+  amount: bigint,
+  expiry: bigint,
+  expectedPayer: string,
+): Promise<string> {
+  const signer = await getSigner();
+  const tx = await getContract(signer).registerOrderWithPayer(
+    orderId,
+    token,
+    amount,
+    expiry,
+    expectedPayer,
+  );
+  const receipt = await tx.wait();
+  return receipt.hash;
+}
+
+/** Customer settles an ERC-20 order (approve + payOrder). Returns the tx receipt. */
+export async function payOrder(
+  merchant: string,
+  orderId: string,
+  token: string,
+  amount: bigint,
+): Promise<string> {
+  const signer = await getSigner();
+  const contract = getContract(signer);
+  await (await new Contract(token, [
+    "function approve(address spender, uint256 amount) returns (bool)",
+  ], signer).approve(PAYWITHQUAI_ADDRESS, amount)).wait();
+  const tx = await contract.payOrder(merchant, orderId);
+  const receipt = await tx.wait();
+  return receipt.hash;
+}
+
 /** Customer settles a native QUAI order. Returns the tx receipt. */
 export async function payOrderNative(
   merchant: string,
@@ -77,8 +119,12 @@ export async function payOrderNative(
   return receipt.hash;
 }
 
+/** Cryptographically random order id — Math.random()/timestamps are predictable, and the id is
+ *  bound to a real on-chain order (a guessed id is also a DoS vector on the order-lookup API). */
 export function newOrderId(): string {
-  return id(`ord_web_${Date.now()}_${Math.random()}`);
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return id(`ord_web_${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`);
 }
 
 export interface OrderStatus {
@@ -116,6 +162,45 @@ export async function isSettledOnChain(
   });
   const contract = new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, provider);
   return (await contract.isSettled(merchant, orderId)) as boolean;
+}
+
+export interface OnChainOrder {
+  merchant: string;
+  settled: boolean;
+  exists: boolean;
+  feeBps: number;
+  token: string;
+  amount: bigint;
+  expiry: bigint;
+  feeRecipient: string;
+  settledAt: bigint;
+  expectedPayer: string;
+  nonce: bigint;
+}
+
+/** Raw order read from the contract (authoritative display + expectedPayer). */
+export async function getOrderOnChain(
+  merchant: string,
+  orderId: string,
+): Promise<OnChainOrder | null> {
+  const provider = new JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL!, undefined, {
+    usePathing: true,
+  });
+  const contract = new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, provider);
+  const o = (await contract.getOrder(merchant, orderId)) as Record<string, unknown>;
+  return {
+    merchant,
+    settled: Boolean(o.settled),
+    exists: Boolean(o.exists),
+    feeBps: Number(o.feeBps as bigint),
+    token: o.token as string,
+    amount: o.amount as bigint,
+    expiry: o.expiry as bigint,
+    feeRecipient: o.feeRecipient as string,
+    settledAt: o.settledAt as bigint,
+    expectedPayer: o.expectedPayer as string,
+    nonce: o.nonce as bigint,
+  };
 }
 
 /** Poll until the relayer confirms the webhook, with a settled fallback. */

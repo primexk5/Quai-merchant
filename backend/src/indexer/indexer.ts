@@ -112,7 +112,8 @@ export class Indexer {
 
     // Finality guard #2: the event must correspond to on-chain settled state. We read the full
     // order (not just isSettled) in the same round-trip so the webhook can report the exact fee
-    // split — feeBps is locked at registration and isn't carried in the event.
+    // split — feeBps is locked at registration and isn't carried in the event — and the order
+    // nonce (an order id becomes reusable after a purge; the nonce keeps events unambiguous).
     const order = await this.client.getOrder(e.merchant, e.orderId);
     if (!order.exists || !order.settled) {
       logger.warn({ id, merchant: e.merchant, orderId: e.orderId }, 'event not settled on-chain — skipping');
@@ -121,7 +122,7 @@ export class Indexer {
 
     const merchant = this.store.getMerchantByAddress(e.merchant);
     const nowMs = this.now();
-    const payload = this.buildPayload(id, e, merchant?.merchantId ?? unknownMerchantId(e.merchant), order.feeBps);
+    const payload = this.buildPayload(id, e, merchant?.merchantId ?? unknownMerchantId(e.merchant), order.feeBps, order.nonce);
 
     // No merchant registered for this payout address: record the payment but don't attempt delivery.
     if (!merchant) {
@@ -160,7 +161,7 @@ export class Indexer {
     }
   }
 
-  private buildPayload(id: string, e: PaymentEvent, merchantId: string, feeBps: number): WebhookPayload {
+  private buildPayload(id: string, e: PaymentEvent, merchantId: string, feeBps: number, orderNonce: bigint): WebhookPayload {
     // Mirror the contract's split exactly (PayWithQuai: fee = amount * feeBps / BPS_DENOMINATOR,
     // BPS_DENOMINATOR = 10000, integer division). The merchant nets the remainder.
     const fee = (e.amount * BigInt(feeBps)) / BPS_DENOMINATOR;
@@ -182,6 +183,7 @@ export class Indexer {
         txHash: e.txHash,
         blockNumber: e.blockNumber,
         timestamp: e.eventTimestamp,
+        nonce: Number(orderNonce),
       },
     };
   }

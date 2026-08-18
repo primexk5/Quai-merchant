@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Check,
-  ExternalLink,
   Loader2,
   LockKeyhole,
   ShieldCheck,
@@ -95,13 +94,16 @@ export default function CheckoutDemoPage() {
             <Check size={28} />
           </div>
 
-          <p className="mt-6 text-sm text-emerald-300">Payment confirmed</p>
+          <p className="mt-6 text-sm text-emerald-300">
+            Payment confirmed (simulated)
+          </p>
           <h1 className="mt-2 text-3xl font-semibold">
             {AMOUNT_QUAI} QUAI received
           </h1>
           <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#8b93a7]">
-            Your transaction was confirmed on the Quai network and the relayer
-            delivered the payment webhook to the merchant.
+            In a real checkout, the merchant would now receive a signed{" "}
+            <code>payment.confirmed</code> webhook from the relayer. This demo
+            stops at the simulated confirmation — no transaction exists.
           </p>
 
           <div className="mt-6 space-y-2 rounded-2xl border border-white/7 bg-[#171717] p-4 text-left font-mono text-xs text-[#8b93a7]">
@@ -115,16 +117,6 @@ export default function CheckoutDemoPage() {
           </div>
 
           <div className="mt-5 flex flex-col items-center gap-3">
-            <a
-              href={`https://orchard.quaiscan.io/tx/${stage.txHash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 text-sm text-[#38bdf8]"
-            >
-              View transaction on Quaiscan
-              <ExternalLink size={14} />
-            </a>
-
             <Link
               href="/"
               className="inline-flex items-center gap-2 text-sm text-[#8b93a7]"
@@ -150,6 +142,13 @@ export default function CheckoutDemoPage() {
         </Link>
 
         <div className="mt-10 rounded-3xl border border-white/7 bg-[#171717] p-6 sm:p-8">
+          <div className="mb-6 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/6 px-4 py-3">
+            <p className="text-xs font-medium text-[#C1ED00]">
+              Simulation — no real payment is made. The wallet connect and
+              confirmation steps below are mocked for the demo.
+            </p>
+          </div>
+
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Quai Store</p>
@@ -382,8 +381,9 @@ export default function CheckoutDemoPage() {
         </div>
 
         <p className="mt-5 text-center text-xs text-[#4f5868]">
-          Live demo against the PayWithQuai router on Quai Orchard testnet —
-          payments settle on-chain and are confirmed by the relayer.
+          End-to-end simulation of the PayWithQuai checkout flow — the steps a
+          real merchant checkout would run (register order → wallet approval →
+          relayer confirmation) are mocked here; no funds move.
         </p>
       </div>
     </main>

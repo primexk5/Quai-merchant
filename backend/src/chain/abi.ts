@@ -5,8 +5,9 @@
  */
 export const PAYWITHQUAI_ABI = [
   'event PaymentReceived(address indexed merchant, bytes32 indexed orderId, address payer, address token, uint256 amount, uint256 timestamp)',
+  'event PaymentSettled(address indexed merchant, bytes32 indexed orderId, address payer, address token, uint256 amount, uint256 fee, uint256 net, uint64 nonce, uint256 timestamp)',
   'function isSettled(address merchant, bytes32 orderId) view returns (bool)',
-  'function getOrder(address merchant, bytes32 orderId) view returns (tuple(address merchant, bool settled, bool exists, uint16 feeBps, address token, uint256 amount, uint256 expiry, address feeRecipient, uint256 settledAt))',
+  'function getOrder(address merchant, bytes32 orderId) view returns (tuple(address merchant, bool settled, bool exists, uint16 feeBps, address token, uint256 amount, uint256 expiry, address feeRecipient, uint256 settledAt, address expectedPayer, uint64 nonce))',
   'function feeBps() view returns (uint96)',
   'function feeRecipient() view returns (address)',
 ] as const;

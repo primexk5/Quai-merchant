@@ -6,7 +6,6 @@ import { useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { storeWalletId } from "@/lib/wallets";
-import { ADMIN_API_KEY, BACKEND_URL } from "@/lib/payment";
 import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
 
@@ -64,15 +63,17 @@ export default function OnboardingPage() {
     setRegistering(true);
     setError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/v1/merchants`, {
+      // Server-only proxy: the ADMIN_API_KEY lives in process.env on the Next server and is
+      // injected there (see app/api/admin/[...path]/route.ts) — it never enters this bundle.
+      const res = await fetch("/api/admin/merchants", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${ADMIN_API_KEY}`,
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ address, name, webhookUrl: url }),
       });
-      if (!res.ok) throw new Error(`registration failed (${res.status})`);
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? `registration failed (${res.status})`);
+      }
       setMerchant((await res.json()) as OnboardedMerchant);
       setStep(2);
     } catch (err) {

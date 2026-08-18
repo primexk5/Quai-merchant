@@ -7,6 +7,7 @@ import {
   BookOpen,
   CreditCard,
   LayoutDashboard,
+  Link2,
   Loader2,
   LogOut,
   Menu,
@@ -27,6 +28,11 @@ const navigation = [
     label: "Overview",
     href: "/dashboard",
     icon: LayoutDashboard,
+  },
+  {
+    label: "Payment links",
+    href: "/dashboard/links",
+    icon: Link2,
   },
   {
     label: "Payments",

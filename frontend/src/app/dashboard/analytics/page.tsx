@@ -9,35 +9,38 @@ import {
   Wallet2,
   XCircle,
 } from "lucide-react";
+import { formatQuai, formatUnits } from "quais";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { useRelayerData, type Delivery } from "@/lib/relayer";
 
 interface DailyPoint {
   day: string;
-  volume: number;
+  volume: bigint;
   count: number;
 }
 
 function computeStats(deliveries: Delivery[]) {
   const delivered = deliveries.filter((d) => d.status === "delivered");
+  const ZERO = 0n;
+  // Exact-decimal sums — Number() would lose precision on big values.
   const totalQuai = delivered.reduce((sum, d) => {
     return (
       sum +
       (d.payload.data.token ===
       "0x0000000000000000000000000000000000000000"
-        ? Number(d.payload.data.net)
-        : 0)
+        ? BigInt(d.payload.data.net)
+        : ZERO)
     );
-  }, 0);
+  }, ZERO);
   const totalToken = delivered.reduce((sum, d) => {
     return (
       sum +
       (d.payload.data.token !==
       "0x0000000000000000000000000000000000000000"
-        ? Number(d.payload.data.net)
-        : 0)
+        ? BigInt(d.payload.data.net)
+        : ZERO)
     );
-  }, 0);
+  }, ZERO);
 
   const byStatus = {
     delivered: delivered.length,
@@ -63,8 +66,8 @@ function computeStats(deliveries: Delivery[]) {
     const day = new Date(d.payload.data.timestamp * 1000)
       .toISOString()
       .slice(0, 10);
-    const entry = dailyMap.get(day) ?? { day, volume: 0, count: 0 };
-    entry.volume += Number(d.payload.data.net);
+    const entry = dailyMap.get(day) ?? { day, volume: 0n, count: 0 };
+    entry.volume += BigInt(d.payload.data.net);
     entry.count += 1;
     dailyMap.set(day, entry);
   }
@@ -109,7 +112,10 @@ function MetricCard({
 export default function AnalyticsPage() {
   const { deliveries, loading, error } = useRelayerData();
   const stats = computeStats(deliveries);
-  const maxDaily = Math.max(1, ...stats.daily.map((d) => d.volume));
+  const maxDaily = stats.daily.reduce(
+    (m, p) => (p.volume > m ? p.volume : m),
+    1n,
+  );
 
   return (
     <DashboardShell>
@@ -150,8 +156,8 @@ export default function AnalyticsPage() {
           <MetricCard
             icon={<Wallet2 size={18} />}
             label="Total volume"
-            value={`${(stats.totalQuai / 1e18).toFixed(2)} QUAI`}
-            detail={`${stats.totalToken > 0 ? `+ ${(stats.totalToken / 1e6).toFixed(2)} mUSDQ · ` : ""}confirmed volume`}
+            value={`${formatQuai(stats.totalQuai)} QUAI`}
+            detail={`${stats.totalToken > 0n ? `+ ${formatUnits(stats.totalToken, 6)} mUSDQ · ` : ""}confirmed volume`}
           />
           <MetricCard
             icon={<BarChart3 size={18} />}
@@ -200,12 +206,12 @@ export default function AnalyticsPage() {
                         <div
                           className="h-full rounded-full bg-[#38bdf8]"
                           style={{
-                            width: `${Math.max(3, (point.volume / maxDaily) * 100)}%`,
+                            width: `${Math.max(3, Number((point.volume * 100n) / maxDaily))}%`,
                           }}
                         />
                       </div>
                       <span className="w-16 shrink-0 text-right font-mono text-[11px] text-[#8b93a7]">
-                        {(point.volume / 1e18).toFixed(1)}
+                        {formatQuai(point.volume)}
                       </span>
                     </div>
                   ))}

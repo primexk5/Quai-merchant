@@ -85,13 +85,43 @@ async function main() {
     throw new Error('Set RPC_URL and CYPRUS1_PK in contracts/.env before deploying.');
   }
 
+  // Mainnet guard rails: a single deployer EOA must never be the router owner, the upgrade
+  // timelock must have a sane floor, and the circuit breaker needs an independent guardian.
+  // Fail hard BEFORE any transaction instead of deploying a footgun.
+  const isMainnet = Number(chainId) === MAINNET_CHAIN_ID;
+  if (isMainnet && !process.env.MULTISIG_ADDR) {
+    throw new Error(
+      'Refusing to deploy to mainnet without MULTISIG_ADDR: ownership would stay with the deployer ' +
+        'EOA. Set MULTISIG_ADDR before deploying.',
+    );
+  }
+  if (isMainnet && !process.env.PAUSE_GUARDIAN_ADDR) {
+    throw new Error(
+      'Refusing to deploy to mainnet without PAUSE_GUARDIAN_ADDR — the circuit breaker needs an ' +
+        'independent actor that can halt payments.',
+    );
+  }
+  const timelockMinDelay = Number(process.env.TIMELOCK_MIN_DELAY || DEFAULT_TIMELOCK_MIN_DELAY);
+  if (isMainnet && timelockMinDelay < 86400) {
+    throw new Error(
+      `Refusing to deploy to mainnet with TIMELOCK_MIN_DELAY=${timelockMinDelay}s — the upgrade ` +
+        'timelock must be at least 86400s (24h) on mainnet.',
+    );
+  }
+
+  // Platform fee: 0.3% (30 bps) is the standard rate, locked at order registration and split to
+  // FEE_RECIPIENT on every settlement. Override with FEE_BPS (max 500 = 5%).
+  const feeBps = process.env.FEE_BPS || '30';
+  if (!/^\d+$/.test(feeBps) || Number(feeBps) > 500) {
+    throw new Error(`Invalid FEE_BPS="${feeBps}" — must be an integer basis-point value 0–500 (max 5%).`);
+  }
+
   const provider = new quais.JsonRpcProvider(url, undefined, { usePathing: true });
   const wallet = new quais.Wallet(accounts[0], provider);
   console.log(`Network:  ${hre.network.name} (chainId ${chainId})`);
   console.log(`Deployer: ${wallet.address}`);
 
   const feeRecipient = process.env.FEE_RECIPIENT || wallet.address;
-  const feeBps = process.env.FEE_BPS || '0';
 
   // 1) MockStablecoin — testnet convenience; never deploy the open-mint faucet to mainnet.
   let mockAddress;
@@ -139,15 +169,14 @@ async function main() {
   let timelockAddress = null;
   if (process.env.MULTISIG_ADDR) {
     const multisig = process.env.MULTISIG_ADDR;
-    const minDelay = process.env.TIMELOCK_MIN_DELAY || String(DEFAULT_TIMELOCK_MIN_DELAY);
     // proposers = [multisig], executors = [multisig], admin = address(0) (self-administered).
     const timelock = await deployContract(
       'TimelockController',
-      [minDelay, [multisig], [multisig], ZERO],
+      [String(timelockMinDelay), [multisig], [multisig], ZERO],
       wallet,
     );
     timelockAddress = timelock.address;
-    console.log(`TimelockController: ${timelockAddress} (minDelay ${minDelay}s, gov=${multisig})`);
+    console.log(`TimelockController: ${timelockAddress} (minDelay ${timelockMinDelay}s, gov=${multisig})`);
 
     await withRetry(async () => {
       await (await pay.transferOwnership(timelockAddress)).wait();
@@ -161,6 +190,16 @@ async function main() {
   } else {
     console.log('\n⚠️  No MULTISIG_ADDR set — owner remains the deployer EOA (fine for testnet).');
     console.log('   For mainnet, set MULTISIG_ADDR to deploy a Timelock and hand off ownership.');
+  }
+
+  // Pause guardian: an independent actor that can halt payments in an emergency but can never
+  // unpause or change any other state. Required on mainnet (checked up front), optional on testnet.
+  if (process.env.PAUSE_GUARDIAN_ADDR) {
+    const guardian = process.env.PAUSE_GUARDIAN_ADDR;
+    await withRetry(async () => {
+      await (await pay.setPauseGuardian(guardian)).wait();
+    }, 'setPauseGuardian');
+    console.log(`PauseGuardian:       ${guardian} (can pause(), never unpause())`);
   }
 
   const outDir = path.join(__dirname, '..', 'deployments');

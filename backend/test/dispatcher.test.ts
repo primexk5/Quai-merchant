@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
 import { JsonStore } from '../src/store/json.js';
-import { WebhookDispatcher } from '../src/webhooks/dispatcher.js';
+import { WebhookDispatcher, type PostFn } from '../src/webhooks/dispatcher.js';
 import type { Config } from '../src/config.js';
 import type { Merchant, WebhookDelivery } from '../src/types.js';
 
@@ -15,21 +15,34 @@ function freshStore(): JsonStore {
 }
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
-  globalThis.fetch = originalFetch;
 });
-
-const originalFetch = globalThis.fetch;
 
 const cfg = {
   WEBHOOK_MAX_ATTEMPTS: 3,
   WEBHOOK_BASE_BACKOFF_MS: 1000,
   WEBHOOK_MAX_BACKOFF_MS: 60_000,
   WEBHOOK_TIMEOUT_MS: 1000,
-  // These tests exercise the delivery state machine against example.test / mocked fetch, not the
-  // SSRF guard — allow insecure URLs so no real DNS lookup happens. The guard has its own tests
-  // below (private-IP reject) and in urlGuard.test.ts.
+  // These tests exercise the delivery state machine against a mocked transport, not the SSRF
+  // guard — allow insecure URLs so the injected post() is the only thing consulted. The guard
+  // has its own tests (private-IP reject) and the transport-level tests in httpPost.test.ts.
   WEBHOOK_ALLOW_INSECURE_URLS: true,
 } as unknown as Config;
+
+/** Transport double: records what the dispatcher would have POSTed and returns a canned result. */
+function mockPost(
+  handler: (opts: { url: string; headers: Record<string, string>; body: string }) =>
+    | { ok: boolean; status: number; error?: string | null }
+    | Promise<{ ok: boolean; status: number; error?: string | null }>,
+): { post: PostFn; calls: { url: string; headers: Record<string, string>; body: string }[] } {
+  const calls: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const post: PostFn = async (opts) => {
+    const { url, headers, body } = opts;
+    calls.push({ url, headers, body });
+    const r = await handler({ url, headers, body });
+    return { ok: r.ok, status: r.status, error: r.error ?? null };
+  };
+  return { post, calls };
+}
 
 const merchant: Merchant = {
   merchantId: 'mch_1',
@@ -63,6 +76,7 @@ function delivery(): WebhookDelivery {
         txHash: '0x' + 'ab'.repeat(32),
         blockNumber: 10,
         timestamp: 1,
+        nonce: 1,
       },
     },
     status: 'pending',
@@ -80,17 +94,16 @@ describe('WebhookDispatcher.attempt', () => {
     store.upsertMerchant(merchant);
     store.insertDeliveryIfAbsent(delivery());
 
-    let sawSignature = false;
-    globalThis.fetch = (async (_url: string, init: RequestInit) => {
-      const headers = init.headers as Record<string, string>;
-      sawSignature = typeof headers['x-paywithquai-signature'] === 'string';
-      return new Response('ok', { status: 200 });
-    }) as typeof fetch;
+    const { post, calls } = mockPost(({ headers }) => {
+      expect(typeof headers['x-paywithquai-signature']).toBe('string');
+      return { ok: true, status: 200 };
+    });
 
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
-    expect(sawSignature).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers['x-paywithquai-signature']).toBeTruthy();
     expect(store.getDelivery('0xabc:0')!.status).toBe('delivered');
     expect(store.getDelivery('0xabc:0')!.attempts).toBe(1);
   });
@@ -99,10 +112,10 @@ describe('WebhookDispatcher.attempt', () => {
     const store = freshStore();
     store.upsertMerchant(merchant);
     store.insertDeliveryIfAbsent(delivery());
-    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
+    const { post } = mockPost(() => ({ ok: false, status: 500, error: 'HTTP 500' }));
 
     const now = 1_700_000_000_000;
-    const d = new WebhookDispatcher(store, cfg, () => now);
+    const d = new WebhookDispatcher(store, cfg, () => now, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
     const after = store.getDelivery('0xabc:0')!;
@@ -116,9 +129,9 @@ describe('WebhookDispatcher.attempt', () => {
     const store = freshStore();
     store.upsertMerchant(merchant);
     store.insertDeliveryIfAbsent({ ...delivery(), attempts: cfg.WEBHOOK_MAX_ATTEMPTS - 1 });
-    globalThis.fetch = (async () => new Response('nope', { status: 500 })) as typeof fetch;
+    const { post } = mockPost(() => ({ ok: false, status: 500, error: 'HTTP 500' }));
 
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
     expect(store.getDelivery('0xabc:0')!.status).toBe('failed');
@@ -129,71 +142,96 @@ describe('WebhookDispatcher.attempt', () => {
     const store = freshStore();
     store.upsertMerchant({ ...merchant, active: false });
     store.insertDeliveryIfAbsent(delivery());
-    let fetched = false;
-    globalThis.fetch = (async () => {
-      fetched = true;
-      return new Response('ok', { status: 200 });
-    }) as typeof fetch;
+    const { post, calls } = mockPost(() => ({ ok: true, status: 200 }));
 
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
-    expect(fetched).toBe(false);
+    expect(calls).toHaveLength(0);
     const held = store.getDelivery('0xabc:0')!;
     expect(held.status).toBe('pending'); // resumes if the merchant is re-activated
     expect(held.attempts).toBe(0);
   });
 
-  it('permanently fails a delivery whose merchant row disappeared', async () => {    const store = freshStore();
+  it('permanently fails a delivery whose merchant row disappeared', async () => {
+    const store = freshStore();
     store.insertDeliveryIfAbsent(delivery()); // no merchant row at all
-    globalThis.fetch = (async () => {
-      throw new Error('must not fetch');
-    }) as typeof fetch;
+    const { post, calls } = mockPost(() => ({ ok: true, status: 200 }));
 
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
     const after = store.getDelivery('0xabc:0')!;
+    expect(calls).toHaveLength(0);
     expect(after.status).toBe('failed');
     expect(after.attempts).toBe(0);
     expect(after.lastError).toBe('merchant no longer registered');
   });
 
-  it('refuses to deliver to a private-IP target and never fetches (SSRF guard)', async () => {
+  it('refuses to deliver to a private-IP target and never dials (SSRF guard)', async () => {
     const store = freshStore();
     store.upsertMerchant({ ...merchant, webhookUrl: 'https://127.0.0.1/webhook' });
     store.insertDeliveryIfAbsent({ ...delivery(), url: 'https://127.0.0.1/webhook' });
-    let fetched = false;
-    globalThis.fetch = (async () => {
-      fetched = true;
-      return new Response('ok', { status: 200 });
-    }) as typeof fetch;
 
-    // Guard active (allowInsecure false) — a loopback literal is blocked before any fetch.
+    // Guard active (allowInsecure false) — the transport rejects the literal before any socket.
     const strictCfg = { ...cfg, WEBHOOK_ALLOW_INSECURE_URLS: false } as unknown as Config;
-    const d = new WebhookDispatcher(store, strictCfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, strictCfg, () => 1_700_000_000_000); // real httpPost
     await d.attempt(store.getDelivery('0xabc:0')!);
 
-    expect(fetched).toBe(false);
     const after = store.getDelivery('0xabc:0')!;
     expect(after.status).toBe('pending'); // retried, not permanently failed (attempts < max)
     expect(after.attempts).toBe(1);
     expect(after.lastError).toMatch(/private\/reserved IP/);
   });
 
-  it('does not follow a 3xx redirect (treats it as a failed delivery)', async () => {
+  it('treats a 3xx as a failed delivery (redirects never followed)', async () => {
     const store = freshStore();
     store.upsertMerchant(merchant);
     store.insertDeliveryIfAbsent(delivery());
-    globalThis.fetch = (async () => new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } })) as typeof fetch;
+    const { post } = mockPost(() => ({ ok: false, status: 302, error: 'unexpected redirect (not followed)' }));
 
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await d.attempt(store.getDelivery('0xabc:0')!);
 
     const after = store.getDelivery('0xabc:0')!;
     expect(after.status).toBe('pending');
     expect(after.attempts).toBe(1);
     expect(after.lastError).toMatch(/redirect/);
+  });
+
+  it('discards a stale write when the delivery was retried concurrently (CAS)', async () => {
+    const store = freshStore();
+    store.upsertMerchant(merchant);
+    store.insertDeliveryIfAbsent(delivery());
+
+    let release: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { post } = mockPost(async () => {
+      await gate; // hold the attempt in flight
+      return { ok: true, status: 200 };
+    });
+
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
+    const attempt = d.attempt(store.getDelivery('0xabc:0')!);
+
+    // While the attempt is dialing, an admin retry resets the delivery (attempts 0, pending).
+    const nowMs = Date.now();
+    const fresh = store.getDelivery('0xabc:0')!;
+    store.updateDelivery({
+      ...fresh,
+      status: 'pending',
+      attempts: 0,
+      nextAttemptAt: nowMs,
+      lastError: null,
+      updatedAt: nowMs,
+    });
+    release!();
+    await attempt;
+
+    // The in-flight attempt's stale write (attempts 1) must NOT clobber the retry's reset.
+    const after = store.getDelivery('0xabc:0')!;
+    expect(after.attempts).toBe(0);
+    expect(after.status).toBe('pending');
   });
 
   it('delivers a due batch concurrently — one slow endpoint does not stall the rest', async () => {
@@ -206,14 +244,13 @@ describe('WebhookDispatcher.attempt', () => {
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const SLOW_MS = 300;
-    globalThis.fetch = (async (_url, init) => {
-      const headers = init!.headers as Record<string, string>;
-      if (headers['x-paywithquai-delivery']?.startsWith('slow:')) await sleep(SLOW_MS);
-      return new Response('ok', { status: 200 });
-    }) as typeof fetch;
+    const { post } = mockPost(({ headers }) => {
+      if (headers['x-paywithquai-delivery']?.startsWith('slow:')) return sleep(SLOW_MS).then(() => ({ ok: true, status: 200 }));
+      return { ok: true, status: 200 };
+    });
 
     const started = Date.now();
-    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000);
+    const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
     await (d as unknown as { tick(): Promise<void> }).tick();
     const elapsed = Date.now() - started;
 

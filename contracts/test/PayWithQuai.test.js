@@ -666,6 +666,165 @@ describe('PayWithQuai', function () {
     });
   });
 
+  describe('registerOrderWithPayer', function () {
+    it('stores the expected payer and lets only that payer settle (ERC-20)', async function () {
+      const { pay, merchant, payer, other, token } = await loadFixture(deployFixture);
+      await pay
+        .connect(merchant)
+        .registerOrderWithPayer(oid('ord_b'), token, AMOUNT, NO_EXPIRY, payer.address);
+
+      const order = await pay.getOrder(merchant.address, oid('ord_b'));
+      expect(order.expectedPayer).to.equal(payer.address);
+
+      // A third party trying to fill the order first is refused — the merchant's sale is safe.
+      await token.connect(other).approve(pay, AMOUNT);
+      await expect(
+        pay.connect(other).payOrder(merchant.address, oid('ord_b')),
+      ).to.be.revertedWithCustomError(pay, 'WrongPayer');
+
+      // The intended payer settles normally.
+      await token.connect(payer).approve(pay, AMOUNT);
+      await expect(pay.connect(payer).payOrder(merchant.address, oid('ord_b'))).to.emit(
+        pay,
+        'PaymentReceived',
+      );
+    });
+
+    it('enforces the expected payer for native orders too', async function () {
+      const { pay, merchant, payer, other } = await loadFixture(deployFixture);
+      await pay
+        .connect(merchant)
+        .registerOrderWithPayer(oid('ord_bn'), ethers.ZeroAddress, AMOUNT, NO_EXPIRY, payer.address);
+      await expect(
+        pay.connect(other).payOrderNative(merchant.address, oid('ord_bn'), { value: AMOUNT }),
+      ).to.be.revertedWithCustomError(pay, 'WrongPayer');
+      await expect(
+        pay.connect(payer).payOrderNative(merchant.address, oid('ord_bn'), { value: AMOUNT }),
+      ).to.emit(pay, 'PaymentReceived');
+    });
+
+    it('expectedPayer = zero behaves like registerOrder (anyone may pay)', async function () {
+      const { pay, merchant, payer, token } = await loadFixture(deployFixture);
+      await pay
+        .connect(merchant)
+        .registerOrderWithPayer(oid('ord_open'), token, AMOUNT, NO_EXPIRY, ethers.ZeroAddress);
+      await token.connect(payer).approve(pay, AMOUNT);
+      await expect(pay.connect(payer).payOrder(merchant.address, oid('ord_open'))).to.emit(
+        pay,
+        'PaymentReceived',
+      );
+    });
+
+    it('reverts a re-registration of the same order id (with or without payer)', async function () {
+      const { pay, merchant, payer, token } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrderWithPayer(oid('ord_x'), token, AMOUNT, NO_EXPIRY, payer.address);
+      await expect(
+        pay.connect(merchant).registerOrderWithPayer(oid('ord_x'), token, AMOUNT, NO_EXPIRY, payer.address),
+      ).to.be.revertedWithCustomError(pay, 'OrderAlreadyExists');
+    });
+  });
+
+  describe('PaymentSettled + order nonce', function () {
+    it('emits PaymentSettled with the exact fee/net split and nonce (ERC-20)', async function () {
+      const { pay, merchant, payer, token } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_s'), token, AMOUNT, NO_EXPIRY);
+      await token.connect(payer).approve(pay, AMOUNT);
+      const { fee, net } = expectedSplit(AMOUNT, FEE_BPS);
+
+      await expect(pay.connect(payer).payOrder(merchant.address, oid('ord_s')))
+        .to.emit(pay, 'PaymentSettled')
+        .withArgs(merchant.address, oid('ord_s'), payer.address, await token.getAddress(), AMOUNT, fee, net, 1n, anyValue);
+    });
+
+    it('emits PaymentSettled for native payments', async function () {
+      const { pay, merchant, payer } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_sn'), ethers.ZeroAddress, AMOUNT, NO_EXPIRY);
+      const { fee, net } = expectedSplit(AMOUNT, FEE_BPS);
+      await expect(
+        pay.connect(payer).payOrderNative(merchant.address, oid('ord_sn'), { value: AMOUNT }),
+      ).to.emit(pay, 'PaymentSettled').withArgs(merchant.address, oid('ord_sn'), payer.address, ethers.ZeroAddress, AMOUNT, fee, net, 1n, anyValue);
+    });
+
+    it('assigns per-merchant increasing nonces; reuse of an order id gets a new nonce', async function () {
+      const { pay, merchant, other, payer, token } = await loadFixture(deployFixture);
+      await pay.connect(merchant).registerOrder(oid('ord_n1'), token, AMOUNT, NO_EXPIRY);
+      await pay.connect(other).registerOrder(oid('ord_n1'), token, AMOUNT, NO_EXPIRY);
+
+      // Nonces are per-merchant: each merchant's first order is nonce 1.
+      expect((await pay.getOrder(merchant.address, oid('ord_n1'))).nonce).to.equal(1n);
+      expect((await pay.getOrder(other.address, oid('ord_n1'))).nonce).to.equal(1n);
+
+      await pay.connect(merchant).registerOrder(oid('ord_n2'), token, AMOUNT, NO_EXPIRY);
+      expect((await pay.getOrder(merchant.address, oid('ord_n2'))).nonce).to.equal(2n);
+
+      // Settle + purge + reuse the same order id: the new order carries a distinct nonce, so an
+      // off-chain indexer can tell the two settlements apart.
+      await token.connect(payer).approve(pay, AMOUNT);
+      await pay.connect(payer).payOrder(merchant.address, oid('ord_n2'));
+      const delay = BigInt(await pay.PURGE_DELAY());
+      await time.increaseTo(BigInt(await time.latest()) + delay + 1n);
+      await pay.connect(merchant).purgeSettledOrder(oid('ord_n2'));
+      await pay.connect(merchant).registerOrder(oid('ord_n2'), token, AMOUNT, NO_EXPIRY);
+      expect((await pay.getOrder(merchant.address, oid('ord_n2'))).nonce).to.equal(3n);
+    });
+  });
+
+  describe('pause guardian', function () {
+    it('lets the owner set the guardian and the guardian pause the router', async function () {
+      const { pay, owner, other, merchant, token } = await loadFixture(deployFixture);
+      await expect(pay.connect(owner).setPauseGuardian(other.address))
+        .to.emit(pay, 'PauseGuardianUpdated')
+        .withArgs(other.address);
+
+      await pay.connect(other).pause();
+      await expect(
+        pay.connect(merchant).registerOrder(oid('ord_g'), token, AMOUNT, NO_EXPIRY),
+      ).to.be.revertedWithCustomError(pay, 'EnforcedPause');
+    });
+
+    it('the guardian can never unpause (owner only)', async function () {
+      const { pay, owner, other, merchant, token } = await loadFixture(deployFixture);
+      await pay.connect(owner).setPauseGuardian(other.address);
+      await pay.connect(other).pause();
+      await expect(pay.connect(other).unpause()).to.be.revertedWithCustomError(
+        pay,
+        'OwnableUnauthorizedAccount',
+      );
+      await pay.connect(owner).unpause();
+      await expect(pay.connect(merchant).registerOrder(oid('ord_g'), token, AMOUNT, NO_EXPIRY)).to.not
+        .be.reverted;
+    });
+
+    it('the guardian cannot change fees, tokens or ownership', async function () {
+      const { pay, owner, other, feeRecipient } = await loadFixture(deployFixture);
+      await pay.connect(owner).setPauseGuardian(other.address);
+      await expect(
+        pay.connect(other).setFeeConfig(0, feeRecipient.address),
+      ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+      await expect(
+        pay.connect(other).setTokenAccepted(other.address, true),
+      ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+      await expect(
+        pay.connect(other).transferOwnership(other.address),
+      ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+    });
+
+    it('a non-owner cannot assign the guardian', async function () {
+      const { pay, other } = await loadFixture(deployFixture);
+      await expect(
+        pay.connect(other).setPauseGuardian(other.address),
+      ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+    });
+
+    it('without a guardian, pause stays owner-only', async function () {
+      const { pay, other } = await loadFixture(deployFixture);
+      await expect(pay.connect(other).pause()).to.be.revertedWithCustomError(
+        pay,
+        'OwnableUnauthorizedAccount',
+      );
+    });
+  });
+
   describe('upgradeability (UUPS)', function () {
     it('sets the explicit owner passed to initialize', async function () {
       const { pay, owner } = await loadFixture(deployFixture);
@@ -693,6 +852,18 @@ describe('PayWithQuai', function () {
       await expect(
         pay.connect(other).upgradeToAndCall(await v2.getAddress(), '0x'),
       ).to.be.revertedWithCustomError(pay, 'OwnableUnauthorizedAccount');
+    });
+
+    it('V2 re-initializer is owner-only (cannot be front-run by an arbitrary caller)', async function () {
+      const { pay, owner, other } = await loadFixture(deployFixture);
+      const v2 = await ethers.deployContract('PayWithQuaiV2Mock');
+      await pay.connect(owner).upgradeToAndCall(await v2.getAddress(), '0x');
+      const upgraded = v2.attach(await pay.getAddress());
+
+      await expect(
+        upgraded.connect(other).initializeV2('sneaky'),
+      ).to.be.revertedWithCustomError(upgraded, 'OwnableUnauthorizedAccount');
+      expect(await upgraded.note()).to.equal('');
     });
 
     it('lets the owner upgrade, preserving all existing state', async function () {

@@ -96,6 +96,7 @@ function seedDelivery(store: JsonStore, over: Partial<WebhookDelivery> = {}): We
         txHash: '0x' + 'ab'.repeat(32),
         blockNumber: 10,
         timestamp: 1,
+        nonce: 1,
       },
     },
     status: 'pending',

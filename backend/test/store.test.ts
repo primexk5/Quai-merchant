@@ -48,6 +48,7 @@ const delivery = (id: string): WebhookDelivery => ({
       txHash: '0x' + 'ab'.repeat(32),
       blockNumber: 10,
       timestamp: 1,
+      nonce: 1,
     },
   },
   status: 'pending',
@@ -157,6 +158,46 @@ describe('JsonStore', () => {
     s.insertDeliveryIfAbsent({ ...delivery('c'), status: 'delivered', nextAttemptAt: 0 });
     const due = s.getDueDeliveries(1000, 10);
     expect(due.map((d) => d.id)).toEqual(['a']);
+  });
+
+  it('stores nonces single-use: consumed once, then gone (login replay protection)', () => {
+    const s = freshStore();
+    s.createNonce('nonce-1', '0xabc', Date.now() + 60_000);
+    expect(s.consumeNonce('nonce-1')).toBe('0xabc');
+    expect(s.consumeNonce('nonce-1')).toBeUndefined(); // second use refused
+  });
+
+  it('refuses to consume an expired nonce (swept from storage)', () => {
+    const s = freshStore();
+    s.createNonce('nonce-1', '0xabc', Date.now() - 1000);
+    expect(s.consumeNonce('nonce-1')).toBeUndefined();
+    expect(s.consumeNonce('nonce-1')).toBeUndefined();
+  });
+
+  it('CAS delivery write applies only when the record still matches the snapshot', () => {
+    const s = freshStore();
+    s.insertDeliveryIfAbsent(delivery('0xabc:0'));
+    const snapshot = s.getDelivery('0xabc:0')!;
+
+    // No concurrent mutation: the guarded write lands.
+    const applied = s.updateDeliveryIfCurrent(
+      { ...snapshot, status: 'delivered', attempts: 1, updatedAt: 2 },
+      { attempts: snapshot.attempts, status: snapshot.status, nextAttemptAt: snapshot.nextAttemptAt, updatedAt: snapshot.updatedAt },
+    );
+    expect(applied).toBe(true);
+    expect(s.getDelivery('0xabc:0')!.status).toBe('delivered');
+
+    // Now simulate a concurrent retry: the record changed (updatedAt bumped, attempts reset) while
+    // a stale in-flight attempt still holds its old snapshot — the guarded write must be refused.
+    s.updateDelivery({ ...s.getDelivery('0xabc:0')!, attempts: 0, status: 'pending', updatedAt: 99 });
+    const stale = s.getDelivery('0xabc:0')!;
+    const rejected = s.updateDeliveryIfCurrent(
+      { ...stale, status: 'delivered', attempts: 1, updatedAt: 100 },
+      { attempts: snapshot.attempts, status: snapshot.status, nextAttemptAt: snapshot.nextAttemptAt, updatedAt: snapshot.updatedAt },
+    );
+    expect(rejected).toBe(false);
+    expect(s.getDelivery('0xabc:0')!.status).toBe('pending');
+    expect(s.getDelivery('0xabc:0')!.attempts).toBe(0);
   });
 
   it('writes the store owner-only (0600) in a dir with no group/other access', () => {

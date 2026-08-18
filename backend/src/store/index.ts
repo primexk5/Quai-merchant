@@ -24,6 +24,11 @@ export interface Store {
   insertDeliveryIfAbsent(d: WebhookDelivery): boolean;
   getDelivery(id: string): WebhookDelivery | undefined;
   updateDelivery(d: WebhookDelivery): void;
+  /** Persist a delivery transition only if the stored record still matches `guard` (the snapshot
+   *  the caller read when it started) — i.e. nothing — an admin retry, a requeue, another sweep —
+   *  touched the record while the caller was busy. Returns true when written, false when the CAS
+   *  failed and the update was discarded. */
+  updateDeliveryIfCurrent(d: WebhookDelivery, guard: Pick<WebhookDelivery, 'attempts' | 'status' | 'nextAttemptAt' | 'updatedAt'>): boolean;
   /** Delivery for a given (merchant, orderId), if any — the O(1) counterpart of scanning the list. */
   getDeliveryByOrder(merchant: string, orderId: string): WebhookDelivery | undefined;
   /** Re-queue `skipped` payments that belong to `m` (its address was just onboarded). Returns
@@ -38,6 +43,12 @@ export interface Store {
   createSession(s: Session): void;
   getSession(token: string): Session | undefined;
   deleteSession(token: string): void;
+
+  // --- login challenges (single-use nonces bound to an address + expiry) ---
+  createNonce(nonce: string, address: string, expiresAt: number): void;
+  /** Consume a nonce exactly once. Returns the address it was issued for, or undefined if the
+   *  nonce is unknown, expired or already used — any of which must fail the login. */
+  consumeNonce(nonce: string): string | undefined;
 
   close(): void;
 }

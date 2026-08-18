@@ -24,6 +24,11 @@ export interface DetectedWallet {
   name: string;
   brand: WalletBrand;
   provider: Eip1193Provider;
+  /** True only when the wallet can actually talk to the Quai network. Quai uses its own
+   *  `quai_requestAccounts` / quai-chain RPC; only Blip (window.quai), Pelagus (window.pelagus)
+   *  and MetaMask (which accepts custom networks via wallet_addEthereumChain) qualify. Other EVM
+   *  wallets are listed for honesty but must never be presented as Quai-ready. */
+  supportsQuai: boolean;
 }
 
 export const QUAI_ORCHARD_CHAIN = {
@@ -78,6 +83,13 @@ function identify(
   return { name: "Browser wallet", brand: "generic" };
 }
 
+/** The only wallets that can sign for the Quai network (see DetectedWallet.supportsQuai). */
+const QUAI_CAPABLE_BRANDS: ReadonlySet<WalletBrand> = new Set<WalletBrand>([
+  "blip",
+  "pelagus",
+  "metamask",
+]);
+
 function providerId(provider: Eip1193Provider): string {
   const uuid = (provider as UnknownProvider).uuid;
   if (uuid) return uuid;
@@ -104,6 +116,7 @@ export function detectWallets(): DetectedWallet[] {
       name,
       brand,
       provider,
+      supportsQuai: QUAI_CAPABLE_BRANDS.has(brand),
     });
   };
 
@@ -116,6 +129,7 @@ export function detectWallets(): DetectedWallet[] {
         name: "Blip Wallet",
         brand: "blip",
         provider: window.quai,
+        supportsQuai: true,
       });
     }
   }
@@ -211,14 +225,22 @@ export async function ensureQuaiNetwork(
 
 /**
  * Connects to the chosen wallet and returns the active address.
+ * Uses `quai_requestAccounts` (Blip/Pelagus) with `eth_requestAccounts` (MetaMask) fallback.
  * Validates that the account lives in the Cyprus-1 zone (0x00…).
  */
 export async function connectWallet(
   wallet: DetectedWallet,
 ): Promise<string> {
-  const accounts = (await wallet.provider.request({
-    method: "quai_requestAccounts",
-  })) as string[];
+  let accounts: string[] = [];
+  try {
+    accounts = (await wallet.provider.request({
+      method: "quai_requestAccounts",
+    })) as string[];
+  } catch {
+    accounts = (await wallet.provider.request({
+      method: "eth_requestAccounts",
+    })) as string[];
+  }
   if (!accounts?.length) {
     throw new Error(`${wallet.name} returned no accounts — unlock it first.`);
   }

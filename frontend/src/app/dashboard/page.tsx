@@ -9,6 +9,7 @@ import {
   Plus,
   TrendingUp,
 } from "lucide-react";
+import { formatQuai, formatUnits } from "quais";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatCard } from "@/components/ui/stat-card";
@@ -21,13 +22,14 @@ export default function DashboardPage() {
   const { deliveries, merchants, loading, error } = useRelayerData();
 
   const delivered = deliveries.filter((d) => d.status === "delivered");
-  const totalQuai = delivered.reduce(
-    (sum, d) => sum + (d.payload.data.token === "0x0000000000000000000000000000000000000000" ? Number(d.payload.data.net) : 0),
-    0,
+  const ZERO = 0n;
+  const totalQuaiWei = delivered.reduce(
+    (sum, d) => sum + (d.payload.data.token === "0x0000000000000000000000000000000000000000" ? BigInt(d.payload.data.net) : ZERO),
+    ZERO,
   );
-  const totalTokenAmount = delivered.reduce(
-    (sum, d) => sum + (d.payload.data.token !== "0x0000000000000000000000000000000000000000" ? Number(d.payload.data.net) : 0),
-    0,
+  const totalTokenUnits = delivered.reduce(
+    (sum, d) => sum + (d.payload.data.token !== "0x0000000000000000000000000000000000000000" ? BigInt(d.payload.data.net) : ZERO),
+    ZERO,
   );
   const successRate =
     deliveries.length > 0
@@ -35,10 +37,9 @@ export default function DashboardPage() {
       : 0;
   const pending = deliveries.filter((d) => d.status === "pending").length;
 
-  const totalDisplay = `${(totalQuai / 1e18).toFixed(2)} QUAI${
-    totalTokenAmount > 0
-      ? ` + ${(totalTokenAmount / 1e6).toFixed(2)} mUSDQ`
-      : ""
+  // Exact-decimal sums: formatQuai/formatUnits do the 10^n scaling without Number() precision loss.
+  const totalDisplay = `${formatQuai(totalQuaiWei)} QUAI${
+    totalTokenUnits > ZERO ? ` + ${formatUnits(totalTokenUnits, 6)} mUSDQ` : ""
   }`;
 
   return (
@@ -58,11 +59,11 @@ export default function DashboardPage() {
           </div>
 
           <Link
-            href="/checkout/demo"
+            href="/dashboard/links"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#38bdf8] px-4 py-2.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff]"
           >
             <Plus size={16} />
-            Create payment
+            Create payment link
           </Link>
         </div>
 
@@ -132,7 +133,8 @@ export default function DashboardPage() {
 
             {deliveries.length === 0 ? (
               <div className="px-5 py-14 text-center text-sm text-[#8b93a7]">
-                No payments yet — create one from the checkout demo.
+                No payments yet — create a payment link from the dashboard or
+                try the checkout demo.
               </div>
             ) : (
               <div className="divide-y divide-white/6">

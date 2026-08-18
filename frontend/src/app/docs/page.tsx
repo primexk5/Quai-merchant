@@ -47,16 +47,21 @@ const nativePay = `await pay.payOrderNative(MERCHANT_ADDRESS, orderId, { value: 
 const webhookJson = `{
   "id":   "0xabc...:3",
   "type": "payment.confirmed",
+  "created": 1738340000,
   "data": {
     "merchantId": "mch_ab12...",
+    "merchant":   "0x00...",       // on-chain payout address
     "orderId":    "0x...",
     "payer":      "0x...",
     "token":      "0x0000000000000000000000000000000000000000",
     "amount":     "25000000",   // gross the payer sent
-    "fee":        "250000",     // platform fee
-    "net":        "24750000",   // what you actually received
+    "feeBps":     30,           // platform fee rate locked at registration (0.3%)
+    "fee":        "75000",      // platform fee = floor(amount × feeBps / 10000)
+    "net":        "24925000",   // what you actually received
     "txHash":     "0x...",
-    "blockNumber": 1234567
+    "blockNumber": 1234567,
+    "timestamp":  1738340000,  // on-chain settlement time
+    "nonce":      1            // per-merchant order nonce; bumps when an order id is reused after a purge
   }
 }`;
 
@@ -333,8 +338,18 @@ export default function DocsPage() {
               <li className="flex gap-2.5">
                 <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
-                  The platform fee is locked into the order automatically here —
-                  you don&apos;t pass it.
+                  The platform fee (0.3%) is locked into the order automatically
+                  here — you don&apos;t pass it.
+                </span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
+                <span>
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">
+                    registerOrderWithPayer(orderId, token, amount, expiry, customerAddress)
+                  </span>{" "}
+                  restricts settlement to one wallet — prepaid or invoice orders
+                  can&apos;t be front-run.
                 </span>
               </li>
             </ul>

@@ -11,6 +11,7 @@ interface FileShape {
   merchants: Record<string, Merchant>; // key: lowercased address
   deliveries: Record<string, WebhookDelivery>; // key: paymentId
   sessions: Record<string, Session>; // key: opaque bearer token
+  nonces: Record<string, { address: string; expiresAt: number }>; // key: login challenge nonce
 }
 
 /** Case-insensitive lookup key binding a delivery to its (merchant, orderId). */
@@ -64,7 +65,7 @@ export class JsonStore implements Store {
   }
 
   private read(): FileShape {
-    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {}, sessions: {} };
+    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {}, sessions: {}, nonces: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as {
         cursor?: number | null;
@@ -72,6 +73,7 @@ export class JsonStore implements Store {
         merchants?: Record<string, Merchant>;
         deliveries?: Record<string, WebhookDelivery>;
         sessions?: Record<string, Session>;
+        nonces?: Record<string, { address: string; expiresAt: number }>;
       };
       if (parsed.cursors === undefined && typeof parsed.cursor === 'number') {
         // Legacy single-cursor file from before cursors were scoped. Keep it under a `legacy`
@@ -85,6 +87,7 @@ export class JsonStore implements Store {
         merchants: parsed.merchants ?? {},
         deliveries: parsed.deliveries ?? {},
         sessions: parsed.sessions ?? {},
+        nonces: parsed.nonces ?? {},
       };
     } catch (err) {
       throw new Error(`Failed to read store at ${this.path}: ${(err as Error).message}`);
@@ -93,8 +96,14 @@ export class JsonStore implements Store {
 
   private flush(): void {
     // 0600: the store holds plaintext webhook secrets. mode only applies when the temp file is
-    // created, so chmod the final path after the rename to guarantee perms even if it pre-existed.
+    // created, so chmod the temp file unconditionally BEFORE the rename too — a stale temp file
+    // from a crash could otherwise carry looser permissions onto the new plaintext content.
     writeFileSync(this.tmpPath, JSON.stringify(this.data), { encoding: 'utf8', mode: 0o600 });
+    try {
+      chmodSync(this.tmpPath, 0o600);
+    } catch {
+      /* best-effort: filesystems without POSIX perms (e.g. Windows) don't support this */
+    }
     // fsync before the rename so a crash after the rename can never leave the *target* file as
     // stale data — otherwise the last delivery/cursor write could be silently lost (a payment
     // would never be webhook-delivered). The rename itself is atomic on POSIX.
@@ -205,6 +214,29 @@ export class JsonStore implements Store {
     this.flush();
   }
 
+  /** CAS write: only applied when the stored record still matches `guard` (the caller's read
+   *  snapshot) — i.e. nothing (admin retry, requeue, another sweep) touched it in the meantime.
+   *  All four fields are compared: a retry resets attempts/status to the same values, so
+   *  nextAttemptAt/updatedAt carry the identity. Returns false (update discarded) otherwise. */
+  updateDeliveryIfCurrent(
+    d: WebhookDelivery,
+    guard: Pick<WebhookDelivery, 'attempts' | 'status' | 'nextAttemptAt' | 'updatedAt'>,
+  ): boolean {
+    const current = this.data.deliveries[d.id];
+    if (
+      !current ||
+      current.attempts !== guard.attempts ||
+      current.status !== guard.status ||
+      current.nextAttemptAt !== guard.nextAttemptAt ||
+      current.updatedAt !== guard.updatedAt
+    ) {
+      return false;
+    }
+    this.data.deliveries[d.id] = d;
+    this.flush();
+    return true;
+  }
+
   getDueDeliveries(now: number, limit: number): WebhookDelivery[] {
     return Object.values(this.data.deliveries)
       .filter((d) => d.status === 'pending' && d.nextAttemptAt <= now)
@@ -218,14 +250,31 @@ export class JsonStore implements Store {
       .slice(0, limit);
   }
 
+  /** Max live sessions per merchant: bounds the file size and prevents a replayed/brute-forced
+   *  login from minting unbounded sessions. Oldest sessions are evicted first. */
+  private static readonly MAX_SESSIONS_PER_MERCHANT = 20;
+
   createSession(s: Session): void {
+    const own = Object.hasOwn(this.data.sessions, s.token);
+    if (!own) {
+      const existing = Object.values(this.data.sessions).filter((x) => x.merchantId === s.merchantId);
+      if (existing.length >= JsonStore.MAX_SESSIONS_PER_MERCHANT) {
+        existing.sort((a, b) => a.createdAt - b.createdAt);
+        const victim = existing[0];
+        if (victim) delete this.data.sessions[victim.token];
+      }
+    }
     this.data.sessions[s.token] = s;
     this.flush();
   }
 
   getSession(token: string): Session | undefined {
+    // Object.hasOwn is load-bearing: a plain-object index with a `__proto__`/`constructor` key
+    // lookup would otherwise leak Object.prototype as a "session" (truthy, unexpired).
+    if (!Object.hasOwn(this.data.sessions, token)) return undefined;
     const s = this.data.sessions[token];
-    if (s && s.expiresAt <= Date.now()) {
+    if (!s) return undefined;
+    if (s.expiresAt <= Date.now()) {
       delete this.data.sessions[token];
       this.flush();
       return undefined;
@@ -234,10 +283,30 @@ export class JsonStore implements Store {
   }
 
   deleteSession(token: string): void {
-    if (this.data.sessions[token]) {
+    if (Object.hasOwn(this.data.sessions, token)) {
       delete this.data.sessions[token];
       this.flush();
     }
+  }
+
+  createNonce(nonce: string, address: string, expiresAt: number): void {
+    const now = Date.now();
+    // Opportunistic sweep so expired nonces can't accumulate unboundedly.
+    for (const [n, v] of Object.entries(this.data.nonces)) {
+      if (v.expiresAt <= now) delete this.data.nonces[n];
+    }
+    this.data.nonces[nonce] = { address, expiresAt };
+    this.flush();
+  }
+
+  consumeNonce(nonce: string): string | undefined {
+    if (!Object.hasOwn(this.data.nonces, nonce)) return undefined;
+    const v = this.data.nonces[nonce];
+    if (!v) return undefined;
+    delete this.data.nonces[nonce]; // single-use: a replayed login can never re-consume it
+    this.flush();
+    if (v.expiresAt <= Date.now()) return undefined;
+    return v.address;
   }
 
   close(): void {

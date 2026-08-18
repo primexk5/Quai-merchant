@@ -33,9 +33,20 @@ const EnvSchema = z.object({
   // SSRF guard escape hatch. When false (default/production) webhook URLs must be https and must
   // not resolve to private/loopback/reserved addresses. Set true only for local development against
   // an http://localhost receiver.
+  // SSRF guard escape hatch. When false (default/production) webhook URLs must be https and must
+  // not resolve to private/loopback/reserved addresses. Set true only for local development against
+  // an http://localhost receiver; loading the config in production with this true is a fatal error.
   WEBHOOK_ALLOW_INSECURE_URLS: boolish(false),
 
   PORT: z.coerce.number().int().positive().default(8080),
+  // Number of reverse proxies in front of the app (0 = none). Only with this set is `req.ip`
+  // (used by the rate limiter and login logging) the real client address; set it to the exact
+  // hop count of your infrastructure, never blindly 1 if there is no proxy.
+  TRUST_PROXY: z.coerce.number().int().nonnegative().default(0),
+  // Realm bound into the wallet-login challenge message, alongside CHAIN_ID. A signature captured
+  // against one deployment can never be replayed against another deployment that uses a different
+  // realm or chain id. Keep it stable per deployment.
+  LOGIN_REALM: z.string().min(1).default('quai-merchant'),
   // Comma-separated list of allowed browser origins for the HTTP API, or `*` for any origin.
   // Only relevant in local dev — the dashboard runs on a different port than the backend.
   CORS_ORIGINS: z.string().default('*'),
@@ -62,6 +73,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('\n');
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  if (parsed.data.WEBHOOK_ALLOW_INSECURE_URLS && env.NODE_ENV === 'production') {
+    throw new Error(
+      'WEBHOOK_ALLOW_INSECURE_URLS=true is not allowed with NODE_ENV=production — ' +
+        'it disables the SSRF guard (https requirement + private-address blocking).',
+    );
   }
   cached = parsed.data;
   return cached;

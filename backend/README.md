@@ -91,12 +91,13 @@ On a confirmed payment the relayer POSTs this body to the merchant's `webhookUrl
     "payer": "0x00…",
     "token": "0x0000000000000000000000000000000000000000",
     "amount": "25000000",
-    "feeBps": 50,
-    "fee": "125000",
-    "net": "24875000",
+    "feeBps": 30,
+    "fee": "75000",
+    "net": "24925000",
     "txHash": "0x…",
     "blockNumber": 12345,
-    "timestamp": 1786479990
+    "timestamp": 1786479990,
+    "nonce": 1
   }
 }
 ```
