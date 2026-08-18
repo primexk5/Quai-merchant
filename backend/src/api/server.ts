@@ -218,7 +218,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
   const auth = requireSession(store);
 
   app.post('/v1/auth/logout', auth, (req, res) => {
-    const token = bearerToken(req) ?? cookieToken(req);
+    const token = bearerToken(req) || cookieToken(req);
     if (token) store.deleteSession(token);
     // Clear the browser cookie regardless of whether a bearer was used.
     res.setHeader('Set-Cookie', sessionCookie('qmsession', '', 0, COOKIE_SECURE, COOKIE_SAME_SITE));
@@ -483,7 +483,9 @@ function sessionCookie(name: string, value: string, maxAgeMs: number, secure: bo
  *  exposed via res.locals.session. */
 function requireSession(store: Store) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const token = bearerToken(req) ?? cookieToken(req) ?? '';
+    // NOTE: `||` is load-bearing — bearerToken returns '' (not null) without a header, and `??`
+    // would short-circuit to '' and never read the HttpOnly cookie, breaking cookie-only clients.
+    const token = bearerToken(req) || cookieToken(req) || '';
     // getSession lazily expires tokens on access, so a stale token fails here naturally.
     const session = token ? store.getSession(token) : undefined;
     if (!session) {

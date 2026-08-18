@@ -317,6 +317,24 @@ describe('session-protected routes', () => {
     expect(res.body).not.toHaveProperty('webhookSecret');
   });
 
+  it('accepts the HttpOnly cookie WITHOUT a bearer token (browser flow)', async () => {
+    // The browser sends only the cookie; bearerToken() returns '' (not null) without an
+    // Authorization header, so `??` here would short-circuit and never read the cookie.
+    const { message, signature, address } = await signLogin(base, wallet);
+    const login = await fetch(`${base}/v1/auth/login`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ address, message, signature }),
+    });
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    expect(cookie).toMatch(/^qmsession=/);
+
+    const res = await req(base, '/v1/me', { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ name: 'Acme', address: merchantAddress });
+  });
+
   it('PATCH /v1/me updates name and webhookUrl without rotating the secret', async () => {
     const before = await req(base, '/v1/me', { headers: auth(token) });
     const secretBefore = store.getMerchantById((before.body.merchantId as string) ?? '')?.webhookSecret;
