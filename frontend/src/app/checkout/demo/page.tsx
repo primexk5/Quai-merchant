@@ -15,7 +15,7 @@ import { useState } from "react";
 import { Logo } from "@/components/logo";
 import QRCode from "react-qr-code";
 
-// Blip deep-link: opens the Blip iOS wallet directly to a pre-filled payment screen.
+// Blip deep-link: opens the Blip mobile wallet (iOS & Android) directly to a pre-filled payment screen.
 // Format confirmed from blippay.me in-app browser integration docs.
 // Replace DEMO_MERCHANT_ADDRESS with your real merchant address in production.
 const DEMO_MERCHANT_ADDRESS = "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7";
@@ -231,7 +231,7 @@ export default function CheckoutDemoPage() {
               {/* Blip tab */}
               {payTab === "blip" && (
                 <div className="flex flex-col items-center p-6">
-                  {/* QR encodes a Blip deep-link so scanning auto-opens the Blip iOS app */}
+                  {/* QR encodes a Blip deep-link so scanning auto-opens the Blip app (iOS & Android) */}
                   <div className="mb-4 rounded-2xl bg-white p-3 shadow-md ring-4 ring-[#C1ED00]/20">
                     <QRCode
                       value={blipDeepLink(AMOUNT_QUAI, "Quai Store")}
@@ -265,7 +265,7 @@ export default function CheckoutDemoPage() {
                       rel="noreferrer"
                       className="text-[#C1ED00] hover:underline"
                     >
-                      Download for iPhone
+                      Download Blip (iOS & Android)
                     </a>
                   </p>
                 </div>

@@ -281,7 +281,7 @@ export default function OnboardingPage() {
                           </div>
                           <p className="mb-1 text-sm font-medium text-white">Scan with Blip</p>
                           <p className="mb-4 text-center text-xs text-[#8b93a7]">
-                            Opens Blip on your iPhone → navigate to this page → connect your wallet.
+                            Opens Blip on your phone → navigate to this page → connect your wallet.
                           </p>
                           <a href={blipLink} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/50">
                             <Smartphone size={14} />
@@ -291,7 +291,7 @@ export default function OnboardingPage() {
                       )}
                       <p className="mt-3 text-center text-xs text-[#4f5868]">
                         Don&apos;t have Blip?{" "}
-                        <a href="https://blippay.me" target="_blank" rel="noreferrer" className="text-[#C1ED00] hover:underline">Download for iPhone</a>
+                        <a href="https://blippay.me" target="_blank" rel="noreferrer" className="text-[#C1ED00] hover:underline">Download Blip (iOS &amp; Android)</a>
                       </p>
                     </div>
                   )}

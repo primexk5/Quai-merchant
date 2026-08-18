@@ -13,13 +13,10 @@ import {
   Code2,
   Copy,
   ExternalLink,
-  Globe2,
   Menu,
-  Network,
   QrCode,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   Zap,
 } from "lucide-react";
 
@@ -236,7 +233,7 @@ export default function Home() {
                 </span>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-[#C1ED00]">Blip Integration</p>
-                  <p className="text-sm text-slate-400">Self-custody iPhone wallet for Quai</p>
+                  <p className="text-sm text-slate-400">Self-custody mobile wallet for Quai (iOS & Android)</p>
                 </div>
               </div>
 
@@ -246,7 +243,7 @@ export default function Home() {
               </h2>
 
               <p className="mt-4 max-w-lg leading-7 text-slate-500">
-                Quai Merchant integrates natively with <strong className="text-slate-300">Blip</strong> — the premier self-custody iPhone wallet for Quai. Customers scan a QR code or tap a link, and the Blip app opens with the payment pre-filled. One tap to confirm.
+                Quai Merchant integrates natively with <strong className="text-slate-300">Blip</strong> — the premier self-custody mobile wallet for Quai (iOS & Android). Customers scan a QR code or tap a link, and the Blip app opens with the payment pre-filled. One tap to confirm.
               </p>
 
               <ul className="mt-6 space-y-3">

@@ -12,6 +12,7 @@ import {
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatCard } from "@/components/ui/stat-card";
+import { WalletBalances } from "@/components/ui/wallet-balances";
 import { formatDeliveryAmount, useRelayerData } from "@/lib/relayer";
 
 const ORCHARD_SCAN = "https://orchard.quaiscan.io/tx/";
@@ -104,6 +105,10 @@ export default function DashboardPage() {
             description="Cyprus-1 · chain 15000"
             icon={ArrowUpRight}
           />
+        </div>
+
+        <div className="mt-8">
+          <WalletBalances />
         </div>
 
         <div className="mt-8 space-y-6">

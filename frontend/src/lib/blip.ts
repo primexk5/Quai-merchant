@@ -1,8 +1,9 @@
 /**
  * blip.ts — Blip Pay wallet utilities
  *
- * Blip is an iPhone self-custody wallet for Quai that injects window.quai
- * inside its built-in browser, making it behave like any EIP-1193 extension.
+ * Blip is a self-custody mobile wallet for Quai (available on iOS and Android)
+ * that injects window.quai inside its built-in browser, making it behave like
+ * any EIP-1193 extension.
  *
  * On desktop, we can deep-link users into the Blip app via QR code.
  * URI scheme confirmed from blippay.me: blip://open opens the app.
@@ -20,7 +21,7 @@ export function isInsideBlipBrowser(): boolean {
 }
 
 /**
- * Returns a deep-link that opens the Blip iOS app.
+ * Returns a deep-link that opens the Blip mobile app (iOS & Android).
  * On desktop encode this as a QR code; on mobile use as <a href>.
  */
 export function blipOpenDeepLink(hint?: string): string {

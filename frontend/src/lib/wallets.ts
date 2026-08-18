@@ -112,7 +112,6 @@ export function detectWallets(): DetectedWallet[] {
 
   // Blip wallet injects window.quai — detect it specifically
   if (window.quai) {
-    const p = window.quai as UnknownProvider & { isBlip?: boolean };
     if (!seen.has(providerId(window.quai))) {
       seen.add(providerId(window.quai));
       wallets.push({

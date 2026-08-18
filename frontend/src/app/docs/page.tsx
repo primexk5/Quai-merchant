@@ -22,7 +22,7 @@ const sections = [
   { id: "before-you-start", label: "Before you start" },
   { id: "register-order", label: "Step 1 — Register the order" },
   { id: "customer-pays", label: "Step 2 — Customer pays" },
-  { id: "mobile-payments", label: "Mobile payments (Blip Pay)" },
+  { id: "mobile-payments", label: "Mobile payments & auth (Blip)" },
   { id: "webhook", label: "Step 3 — Verify the webhook" },
   { id: "quick-reference", label: "Quick reference" },
   { id: "testing", label: "Testing on testnet" },
@@ -375,11 +375,11 @@ export default function DocsPage() {
             <SectionHeading
               id="mobile-payments"
               kicker="Blip Pay"
-              title="Mobile payments with Blip"
+              title="Mobile payments & auth with Blip"
             />
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
-              Quai Merchant natively supports <span className="font-medium text-white">Blip Pay</span> for mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip iOS app directly with the payment pre-filled.
+              Quai Merchant natively supports <span className="font-medium text-white">Blip Pay</span> for merchant auth (onboarding/login) and mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
             </p>
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
@@ -399,7 +399,7 @@ import QRCode from "react-qr-code";
             </div>
 
             <Callout tone="info" title="Automatic detection">
-              When a user browses your checkout from within the Blip in-app browser, it automatically injects \`window.quai\`. You can detect it to seamlessly trigger standard extension-like payments!
+              When a user browses your checkout, onboarding, or login pages from within the Blip in-app browser, it automatically injects \`window.quai\`. You can detect it to seamlessly trigger standard EIP-1193 interactions (connecting, signing, or paying) with just a tap!
             </Callout>
           </section>
 
