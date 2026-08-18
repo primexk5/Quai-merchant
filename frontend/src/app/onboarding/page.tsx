@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { ADMIN_API_KEY, BACKEND_URL } from "@/lib/payment";
-import { isInsideBlipBrowser, blipOpenDeepLink, isMobileViewport } from "@/lib/blip";
+import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
 
 function BlipLogo() {
@@ -41,9 +41,7 @@ export default function OnboardingPage() {
   const [walletTab, setWalletTab] = useState<"blip" | "wallet">("blip");
   const [blipConnecting, setBlipConnecting] = useState(false);
 
-  // Derived from window — safe to compute during render (client-only, guarded inside the utils)
-  const insideBlip = useMemo(() => isInsideBlipBrowser(), []);
-  const isMobile = useMemo(() => isMobileViewport(), []);
+  const { insideBlip, isMobile, blipLink } = useBlipContext();
 
   const complete = async () => {
     if (!address) return;
@@ -112,7 +110,7 @@ export default function OnboardingPage() {
     }
   };
 
-  const blipLink = blipOpenDeepLink("register");
+
 
   return (
     <main className="min-h-screen bg-[#171717] px-5 py-8 text-white">

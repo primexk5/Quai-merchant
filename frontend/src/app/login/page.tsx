@@ -11,11 +11,11 @@ import {
   Smartphone,
   Wallet,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { isLoggedIn, loginWithWallet } from "@/lib/auth";
-import { isInsideBlipBrowser, blipOpenDeepLink, isMobileViewport } from "@/lib/blip";
+import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
 
 function BlipLogo() {
@@ -37,8 +37,7 @@ export default function LoginPage() {
   const [tab, setTab] = useState<"blip" | "wallet">("blip");
   const [blipConnecting, setBlipConnecting] = useState(false);
 
-  const insideBlip = useMemo(() => isInsideBlipBrowser(), []);
-  const isMobile = useMemo(() => isMobileViewport(), []);
+  const { insideBlip, isMobile, blipLink } = useBlipContext();
 
   useEffect(() => {
     if (isLoggedIn()) router.replace("/dashboard");
@@ -78,7 +77,7 @@ export default function LoginPage() {
     }
   };
 
-  const blipLink = blipOpenDeepLink("login");
+
 
   return (
     <main className="min-h-screen bg-[#171717] px-5 py-8 text-white">

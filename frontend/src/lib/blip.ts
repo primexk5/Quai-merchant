@@ -14,24 +14,39 @@
  * Update this file once the Blip team publishes the connection URI scheme.
  */
 
+import { useState, useEffect } from "react";
+
 /** True when running inside Blip's built-in browser (window.quai is injected). */
 export function isInsideBlipBrowser(): boolean {
   if (typeof window === "undefined") return false;
   return !!window.quai;
 }
 
-/**
- * Returns a deep-link that opens the Blip mobile app (iOS & Android).
- * On desktop encode this as a QR code; on mobile use as <a href>.
- */
-export function blipOpenDeepLink(hint?: string): string {
-  const base = "blip://open";
-  if (!hint) return base;
-  return `${base}?ref=${encodeURIComponent(hint)}`;
-}
-
 /** True on mobile-class viewports. */
 export function isMobileViewport(): boolean {
   if (typeof window === "undefined") return false;
   return window.innerWidth < 768 || /Mobi|Android/i.test(navigator.userAgent);
+}
+
+/**
+ * Hook to safely retrieve Blip environment variables on the client
+ * without causing React hydration mismatches between Server/Client renders.
+ */
+export function useBlipContext() {
+  const [insideBlip, setInsideBlip] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  // Default fallback for SSR
+  const [blipLink, setBlipLink] = useState("https://blippay.me");
+
+  useEffect(() => {
+    void (async () => {
+      await Promise.resolve();
+      setInsideBlip(isInsideBlipBrowser());
+      setIsMobile(isMobileViewport());
+      // Blip's universal link to open a specific URL in their in-app browser
+      setBlipLink(`https://blippay.me/browser?url=${encodeURIComponent(window.location.href)}`);
+    })();
+  }, []);
+
+  return { insideBlip, isMobile, blipLink };
 }
