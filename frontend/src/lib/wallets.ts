@@ -107,10 +107,7 @@ export function detectWallets(): DetectedWallet[] {
     });
   };
 
-  // Pelagus has first-class slot
-  push(window.pelagus, true);
-
-  // Blip wallet injects window.quai — detect it specifically
+  // Blip wallet injects window.quai — detect it specifically first
   if (window.quai) {
     if (!seen.has(providerId(window.quai))) {
       seen.add(providerId(window.quai));
@@ -122,6 +119,9 @@ export function detectWallets(): DetectedWallet[] {
       });
     }
   }
+
+  // Pelagus has first-class slot
+  push(window.pelagus, true);
 
   push(window.ethereum, false);
 
