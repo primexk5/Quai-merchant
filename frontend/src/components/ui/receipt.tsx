@@ -9,34 +9,64 @@ export interface ReceiptProps {
   orderId: string;
   txHash: string;
   date: string;
+  // Optional enrichment fields
+  customerName?: string;
+  merchantName?: string;
+  shopName?: string;
+  merchantId?: string;
 }
 
 export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
-  ({ amount, symbol, merchantAddress, orderId, txHash, date }, ref) => {
+  (
+    {
+      amount,
+      symbol,
+      merchantAddress,
+      orderId,
+      txHash,
+      date,
+      customerName,
+      merchantName,
+      shopName,
+      merchantId,
+    },
+    ref,
+  ) => {
     return (
       <div
         ref={ref}
         className="w-105 shrink-0 overflow-hidden rounded-3xl border border-white/10 bg-[#0f1115] p-8 text-white shadow-2xl"
         style={{
           background: "linear-gradient(180deg, #1a1c23 0%, #0f1115 100%)",
-          fontFamily: "sans-serif", // Ensure basic font rendering for html-to-image
+          fontFamily: "sans-serif",
         }}
       >
         <div className="flex flex-col items-center text-center">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/20 bg-emerald-400/10 text-emerald-400">
             <Check size={32} />
           </div>
-          
+
           <h2 className="text-xs font-bold text-emerald-400 uppercase tracking-[0.2em]">
             Payment Confirmed
           </h2>
-          
+
           <div className="mt-6 flex items-baseline justify-center gap-2">
-            <span className="text-[2.75rem] font-bold leading-none tracking-tight">{amount}</span>
-            <span className="text-xl font-semibold text-[#8b93a7]">{symbol}</span>
+            <span className="text-[2.75rem] font-bold leading-none tracking-tight">
+              {amount}
+            </span>
+            <span className="text-xl font-semibold text-[#8b93a7]">
+              {symbol}
+            </span>
           </div>
-          
+
           <p className="mt-3 text-sm text-[#4f5868]">{date}</p>
+
+          {customerName && (
+            <p className="mt-2 text-sm font-medium text-white">
+              Paid by{" "}
+              <span className="text-[#38bdf8]">{customerName}</span>
+            </p>
+          )}
         </div>
 
         <div className="my-8 relative">
@@ -48,29 +78,62 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         </div>
 
         <div className="space-y-5 rounded-2xl bg-white/5 p-5 border border-white/5">
+          {(merchantName || shopName) && (
+            <div>
+              <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">
+                Merchant
+              </p>
+              {merchantName && (
+                <p className="font-medium text-sm text-white/90">{merchantName}</p>
+              )}
+              {shopName && (
+                <p className="text-xs text-[#8b93a7]">{shopName}</p>
+              )}
+              {merchantId && (
+                <p className="mt-0.5 font-mono text-[10px] text-[#4f5868]">
+                  {merchantId}
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
-            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">Merchant Address</p>
-            <p className="break-all font-mono text-sm text-white/90">{merchantAddress}</p>
+            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">
+              Merchant Address
+            </p>
+            <p className="break-all font-mono text-sm text-white/90">
+              {merchantAddress}
+            </p>
           </div>
-          
+
           <div>
-            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">Order ID</p>
-            <p className="break-all font-mono text-sm text-white/90">{orderId}</p>
+            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">
+              Order ID
+            </p>
+            <p className="break-all font-mono text-sm text-white/90">
+              {orderId}
+            </p>
           </div>
-          
+
           <div>
-            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">Transaction Hash</p>
-            <p className="break-all font-mono text-sm text-[#38bdf8]">{txHash}</p>
+            <p className="text-xs font-medium text-[#8b93a7] uppercase tracking-wider mb-1">
+              Transaction Hash
+            </p>
+            <p className="break-all font-mono text-sm text-[#38bdf8]">
+              {txHash}
+            </p>
           </div>
         </div>
 
         <div className="mt-10 flex flex-col items-center justify-center gap-3 opacity-60">
           <Logo className="h-6 w-6 grayscale" />
-          <span className="text-[10px] font-bold tracking-[0.25em] text-[#8b93a7]">QUAI MERCHANT</span>
+          <span className="text-[10px] font-bold tracking-[0.25em] text-[#8b93a7]">
+            QUAI MERCHANT
+          </span>
         </div>
       </div>
     );
-  }
+  },
 );
 
 Receipt.displayName = "Receipt";

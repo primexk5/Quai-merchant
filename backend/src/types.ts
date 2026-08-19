@@ -71,6 +71,33 @@ export interface WebhookPayload {
 
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed' | 'skipped';
 
+/** A short-link template created by a merchant from the dashboard. */
+export interface PaymentLink {
+  slug: string;               // 8-char base62 ID — the short URL key
+  merchantAddress: string;    // lowercased payout address
+  merchantId: string;         // platform ID for display on receipt
+  merchantName: string;       // from merchant record at creation time
+  shopName: string;           // optional display name the merchant sets
+  tokenAddress: string;       // ZERO_ADDRESS = native QUAI
+  amount: string;             // smallest unit, decimal string
+  amountDisplay: string;      // human-readable e.g. "25.0"
+  symbol: string;             // "QUAI" | "mUSDQ"
+  expiryDurationSecs: number; // 0 = no expiry on orders
+  multiPay: boolean;          // true = many customers can pay
+  /** Pre-registered orderIds available for customers to claim (multiPay only). */
+  orderPool: string[];        // bytes32 hex strings
+  createdAt: number;          // unix ms
+}
+
+/** Tracks one customer claim of an orderId from a multi-pay link pool. */
+export interface LinkClaim {
+  slug: string;
+  orderId: string;            // claimed from the pool
+  payerAddress: string;       // lowercased customer wallet
+  claimedAt: number;          // unix ms — used for 5-min double-pay guard
+  settled: boolean;           // set true after on-chain confirmation
+}
+
 export interface WebhookDelivery {
   id: string; // == paymentId
   merchantId: string;

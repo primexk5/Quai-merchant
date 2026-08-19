@@ -1,4 +1,4 @@
-import type { Merchant, Session, WebhookDelivery } from '../types.js';
+import type { Merchant, Session, WebhookDelivery, PaymentLink, LinkClaim } from '../types.js';
 
 /**
  * Persistence boundary for the relayer. The default implementation ({@link JsonStore}) is a
@@ -51,4 +51,18 @@ export interface Store {
   consumeNonce(nonce: string): string | undefined;
 
   close(): void;
+
+  // --- payment links (short slug → link template + order pool) ---
+  upsertLink(link: PaymentLink): void;
+  getLink(slug: string): PaymentLink | undefined;
+  listLinksForMerchant(merchantAddress: string): PaymentLink[];
+  /** Remove one orderId from the pool and return it, or undefined if pool is empty. */
+  claimOrderFromPool(slug: string, payerAddress: string): string | undefined;
+  /** Mark a previously-claimed orderId as settled (payment confirmed on-chain). */
+  settleClaimedOrder(slug: string, orderId: string): void;
+
+  // --- link claims (rate-limit + settled tracking) ---
+  upsertClaim(claim: LinkClaim): void;
+  /** Returns the most recent claim for this (slug, payerAddress), or undefined. */
+  getLatestClaim(slug: string, payerAddress: string): LinkClaim | undefined;
 }

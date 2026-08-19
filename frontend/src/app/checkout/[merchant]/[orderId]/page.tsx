@@ -25,7 +25,7 @@ import {
   getOrderOnChain,
   payOrder,
   payOrderNative,
-  waitForConfirmation,
+  waitForOnChainConfirmation,
   type OnChainOrder,
 } from "@/lib/payment";
 import {
@@ -50,8 +50,8 @@ type Stage =
   | { name: "settled" }
   | { name: "ready" }
   | { name: "paying"; step: string }
-  | { name: "awaiting"; webhook: string | null }
-  | { name: "done"; txHash: string; net: string; symbol: string; webhookPending?: boolean }
+  | { name: "awaiting"; status: string }
+  | { name: "done"; txHash: string; net: string; symbol: string }
   | { name: "error"; message: string };
 
 function isExpired(expiry: bigint): boolean {
@@ -62,6 +62,7 @@ export default function CheckoutPage({ params }: { params: Params }) {
   const [stage, setStage] = useState<Stage>({ name: "loading" });
   const [merchant, setMerchant] = useState("");
   const [orderId, setOrderId] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const receiptRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -207,11 +208,13 @@ export default function CheckoutPage({ params }: { params: Params }) {
       const txHash = isNative(order)
         ? await payOrderNative(order.merchant, orderId, order.amount)
         : await payOrder(order.merchant, orderId, order.token, order.amount);
-      setStage({ name: "awaiting", webhook: null });
-      const confirmation = await waitForConfirmation(order.merchant, orderId, (webhook) =>
-        setStage({ name: "awaiting", webhook }),
+      setStage({ name: "awaiting", status: "Waiting for block confirmation…" });
+      const settled = await waitForOnChainConfirmation(
+        order.merchant,
+        orderId,
+        (status) => setStage({ name: "awaiting", status }),
       );
-      if (!confirmation.settledOnChain) {
+      if (!settled) {
         throw new Error("Payment was not confirmed on-chain — check your wallet and try again.");
       }
       setStage({
@@ -219,7 +222,6 @@ export default function CheckoutPage({ params }: { params: Params }) {
         txHash,
         net: formatAmount(order, netAmount(order)),
         symbol: symbol(order),
-        webhookPending: !confirmation.webhookDelivered,
       });
     } catch (err: unknown) {
       setStage({
@@ -241,9 +243,7 @@ export default function CheckoutPage({ params }: { params: Params }) {
             {stage.net} {stage.symbol} sent
           </h1>
           <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#8b93a7]">
-            {stage.webhookPending
-              ? "Payment settled on-chain. The merchant webhook is still pending — they may take a moment to confirm your order."
-              : "The merchant receives the payment directly — their wallet is also getting a signed payment.confirmed webhook from the relayer."}
+            Your payment settled on-chain. The merchant will be notified automatically.
           </p>
           <div className="mt-6 space-y-2 rounded-2xl border border-white/7 bg-[#171717] p-4 text-left font-mono text-xs text-[#8b93a7]">
             <p className="break-all">
@@ -279,6 +279,7 @@ export default function CheckoutPage({ params }: { params: Params }) {
               orderId={orderId}
               txHash={stage.txHash}
               date={new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              customerName={customerName || undefined}
             />
           </div>
         </div>
@@ -575,6 +576,19 @@ export default function CheckoutPage({ params }: { params: Params }) {
                       Non-custodial
                     </span>
                   </div>
+
+                  {/* Optional customer name — stored client-side only, shown on receipt */}
+                  <div className="mt-5">
+                    <p className="mb-2 text-sm text-[#8b93a7]">Your name (optional — appears on receipt)</p>
+                    <input
+                      type="text"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      placeholder="e.g. Alice"
+                      maxLength={60}
+                      className="h-10 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-sm text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                    />
+                  </div>
                 </>
               )}
 
@@ -588,12 +602,8 @@ export default function CheckoutPage({ params }: { params: Params }) {
               {stage.name === "awaiting" && (
                 <div className="mt-4 flex w-full flex-col items-center gap-2 rounded-xl border border-white/7 bg-[#171717] py-3.5 text-sm text-[#8b93a7]">
                   <Loader2 size={16} className="animate-spin text-[#38bdf8]" />
-                  Payment sent — waiting for relayer confirmation…
-                  <span className="text-xs">
-                    {stage.webhook
-                      ? `webhook status: ${stage.webhook}`
-                      : "waiting for the relayer to pick up PaymentSettled"}
-                  </span>
+                  Payment sent — waiting for on-chain confirmation…
+                  <span className="text-xs">{stage.status}</span>
                 </div>
               )}
             </>

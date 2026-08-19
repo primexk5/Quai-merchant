@@ -1,17 +1,19 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, openSync, closeSync, fsyncSync, chmodSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Store } from './index.js';
-import type { Merchant, Session, WebhookDelivery } from '../types.js';
+import type { Merchant, Session, WebhookDelivery, PaymentLink, LinkClaim } from '../types.js';
 import { log } from '../logger.js';
 
 const logger = log('store');
 
 interface FileShape {
-  cursors: Record<string, number>; // key: "<chainId>:<contractAddress>" — scoped block cursor
-  merchants: Record<string, Merchant>; // key: lowercased address
-  deliveries: Record<string, WebhookDelivery>; // key: paymentId
-  sessions: Record<string, Session>; // key: opaque bearer token
-  nonces: Record<string, { address: string; expiresAt: number }>; // key: login challenge nonce
+  cursors: Record<string, number>;
+  merchants: Record<string, Merchant>;
+  deliveries: Record<string, WebhookDelivery>;
+  sessions: Record<string, Session>;
+  nonces: Record<string, { address: string; expiresAt: number }>;
+  links: Record<string, PaymentLink>;   // key: slug
+  claims: Record<string, LinkClaim[]>;  // key: slug — array of all claims for that link
 }
 
 /** Case-insensitive lookup key binding a delivery to its (merchant, orderId). */
@@ -65,7 +67,7 @@ export class JsonStore implements Store {
   }
 
   private read(): FileShape {
-    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {}, sessions: {}, nonces: {} };
+    if (!existsSync(this.path)) return { cursors: {}, merchants: {}, deliveries: {}, sessions: {}, nonces: {}, links: {}, claims: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as {
         cursor?: number | null;
@@ -88,6 +90,8 @@ export class JsonStore implements Store {
         deliveries: parsed.deliveries ?? {},
         sessions: parsed.sessions ?? {},
         nonces: parsed.nonces ?? {},
+        links: (parsed as Partial<FileShape>).links ?? {},
+        claims: (parsed as Partial<FileShape>).claims ?? {},
       };
     } catch (err) {
       throw new Error(`Failed to read store at ${this.path}: ${(err as Error).message}`);
@@ -311,5 +315,69 @@ export class JsonStore implements Store {
 
   close(): void {
     this.flush();
+  }
+
+  // --- payment links ---
+
+  upsertLink(link: PaymentLink): void {
+    this.data.links[link.slug] = link;
+    this.flush();
+  }
+
+  getLink(slug: string): PaymentLink | undefined {
+    return Object.hasOwn(this.data.links, slug) ? this.data.links[slug] : undefined;
+  }
+
+  listLinksForMerchant(merchantAddress: string): PaymentLink[] {
+    const addr = merchantAddress.toLowerCase();
+    return Object.values(this.data.links)
+      .filter((l) => l.merchantAddress === addr)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  claimOrderFromPool(slug: string, payerAddress: string): string | undefined {
+    const link = this.data.links[slug];
+    if (!link || link.orderPool.length === 0) return undefined;
+    const orderId = link.orderPool.shift()!; // pop from front
+    this.data.links[slug] = link;
+    const claim: LinkClaim = {
+      slug,
+      orderId,
+      payerAddress: payerAddress.toLowerCase(),
+      claimedAt: Date.now(),
+      settled: false,
+    };
+    if (!this.data.claims[slug]) this.data.claims[slug] = [];
+    this.data.claims[slug]!.push(claim);
+    this.flush();
+    return orderId;
+  }
+
+  settleClaimedOrder(slug: string, orderId: string): void {
+    const claims = this.data.claims[slug];
+    if (!claims) return;
+    const idx = claims.findIndex((c) => c.orderId === orderId);
+    if (idx !== -1) {
+      claims[idx]!.settled = true;
+      this.flush();
+    }
+  }
+
+  upsertClaim(claim: LinkClaim): void {
+    if (!this.data.claims[claim.slug]) this.data.claims[claim.slug] = [];
+    const list = this.data.claims[claim.slug]!;
+    const idx = list.findIndex((c) => c.orderId === claim.orderId);
+    if (idx !== -1) list[idx] = claim;
+    else list.push(claim);
+    this.flush();
+  }
+
+  getLatestClaim(slug: string, payerAddress: string): LinkClaim | undefined {
+    const claims = this.data.claims[slug];
+    if (!claims) return undefined;
+    const addr = payerAddress.toLowerCase();
+    return claims
+      .filter((c) => c.payerAddress === addr)
+      .sort((a, b) => b.claimedAt - a.claimedAt)[0];
   }
 }

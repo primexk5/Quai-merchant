@@ -5,8 +5,8 @@ import { z } from 'zod';
 import type { Store } from '../store/index.js';
 import type { QuaiClient } from '../chain/client.js';
 import type { Config } from '../config.js';
-import type { Merchant, Session } from '../types.js';
-import { newMerchantId, newWebhookSecret } from '../util/ids.js';
+import type { Merchant, Session, PaymentLink } from '../types.js';
+import { newMerchantId, newWebhookSecret, newSlug } from '../util/ids.js';
 import { assertSafeWebhookUrl, UnsafeWebhookUrlError } from '../webhooks/urlGuard.js';
 import { rateLimit } from './rateLimit.js';
 import { cors } from './cors.js';
@@ -270,6 +270,133 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     });
   });
 
+  // --- payment links (short URLs + multi-pay order pool) ---
+
+  const CreateLinkSchema = z.object({
+    shopName: z.string().max(200).optional().default(''),
+    tokenAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    amount: z.string().regex(/^\d+$/, 'amount must be a decimal integer string (smallest unit)'),
+    amountDisplay: z.string().max(30),
+    symbol: z.string().max(10),
+    expiryDurationSecs: z.number().int().min(0).default(0),
+    multiPay: z.boolean().default(false),
+    /** Pre-registered orderIds sent by the merchant after signing them on-chain. */
+    orderPool: z.array(z.string().regex(/^0x[0-9a-fA-F]{64}$/)).default([]),
+  });
+
+  app.post('/v1/links', auth, (req, res) => {
+    const session = res.locals.session as Session;
+    const merchant = store.getMerchantById(session.merchantId);
+    if (!merchant) return res.status(404).json({ error: 'merchant not found' });
+
+    const parsed = CreateLinkSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
+    }
+    const d = parsed.data;
+
+    // Single-pay links need exactly one orderId in the pool.
+    if (!d.multiPay && d.orderPool.length !== 1) {
+      return res.status(400).json({ error: 'single-pay link requires exactly one orderId in orderPool' });
+    }
+    // Multi-pay links need at least one pre-registered order to be useful.
+    if (d.multiPay && d.orderPool.length === 0) {
+      return res.status(400).json({ error: 'multi-pay link requires at least one pre-registered orderId' });
+    }
+
+    const slug = newSlug();
+    const link: PaymentLink = {
+      slug,
+      merchantAddress: merchant.address,
+      merchantId: merchant.merchantId,
+      merchantName: merchant.name,
+      shopName: d.shopName ?? '',
+      tokenAddress: d.tokenAddress,
+      amount: d.amount,
+      amountDisplay: d.amountDisplay,
+      symbol: d.symbol,
+      expiryDurationSecs: d.expiryDurationSecs,
+      multiPay: d.multiPay,
+      orderPool: d.orderPool,
+      createdAt: Date.now(),
+    };
+    store.upsertLink(link);
+    logger.info({ slug, merchantId: merchant.merchantId, multiPay: d.multiPay, poolSize: d.orderPool.length }, 'payment link created');
+    res.status(201).json(publicLink(link));
+  });
+
+  app.get('/v1/links', auth, (req, res) => {
+    const session = res.locals.session as Session;
+    const merchant = store.getMerchantById(session.merchantId);
+    if (!merchant) return res.status(404).json({ error: 'merchant not found' });
+    const links = store.listLinksForMerchant(merchant.address).map(publicLink);
+    res.json({ links });
+  });
+
+  // Public — the checkout page (including mobile browsers) needs this without auth.
+  const linkLimiter = rateLimit({
+    windowMs: cfg.PUBLIC_RATE_LIMIT_WINDOW_MS ?? 60_000,
+    max: cfg.PUBLIC_RATE_LIMIT_MAX ?? 60,
+  });
+
+  app.get('/v1/links/:slug', linkLimiter, (req, res) => {
+    const slug = req.params.slug ?? '';
+    const link = store.getLink(slug);
+    if (!link) return res.status(404).json({ error: 'link not found' });
+    res.json(publicLink(link));
+  });
+
+  const ClaimSchema = z.object({
+    payerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'payerAddress must be a 20-byte hex address'),
+  });
+
+  const DOUBLE_PAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+  app.post('/v1/links/:slug/claim', linkLimiter, (req, res) => {
+    const slug = req.params.slug ?? '';
+    const link = store.getLink(slug);
+    if (!link) return res.status(404).json({ error: 'link not found' });
+
+    const parsed = ClaimSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
+    }
+    let payerAddress: string;
+    try {
+      payerAddress = getAddress(parsed.data.payerAddress);
+    } catch {
+      return res.status(400).json({ error: 'payerAddress fails checksum validation' });
+    }
+
+    // 5-min double-pay guard: same wallet cannot claim again until previous claim expires.
+    const latest = store.getLatestClaim(slug, payerAddress);
+    if (latest && !latest.settled) {
+      const elapsed = Date.now() - latest.claimedAt;
+      if (elapsed < DOUBLE_PAY_WINDOW_MS) {
+        const retryAfterSecs = Math.ceil((DOUBLE_PAY_WINDOW_MS - elapsed) / 1000);
+        res.setHeader('Retry-After', String(retryAfterSecs));
+        return res.status(429).json({
+          error: 'already claimed — wait before paying again',
+          retryAfterSecs,
+          orderId: latest.orderId, // let them reuse their already-claimed orderId
+        });
+      }
+    }
+
+    const orderId = store.claimOrderFromPool(slug, payerAddress);
+    if (!orderId) {
+      return res.status(503).json({ error: 'no orders available — pool exhausted; ask the merchant to add more' });
+    }
+    logger.info({ slug, payerAddress, orderId }, 'order claimed from pool');
+    res.json({
+      orderId,
+      merchant: getAddress(link.merchantAddress),
+      token: link.tokenAddress,
+      amount: link.amount,
+      poolRemaining: link.orderPool.length,
+    });
+  });
+
   // --- admin ---
   const admin = express.Router();
   admin.use(requireAdmin(cfg));
@@ -428,6 +555,25 @@ function publicMerchant(m: Merchant) {
     webhookUrl: m.webhookUrl,
     active: m.active,
     createdAt: m.createdAt,
+  };
+}
+
+/** Link view — omits the internal orderPool array; pool size only. */
+function publicLink(l: PaymentLink) {
+  return {
+    slug: l.slug,
+    merchantAddress: getAddress(l.merchantAddress),
+    merchantId: l.merchantId,
+    merchantName: l.merchantName,
+    shopName: l.shopName,
+    tokenAddress: l.tokenAddress,
+    amount: l.amount,
+    amountDisplay: l.amountDisplay,
+    symbol: l.symbol,
+    expiryDurationSecs: l.expiryDurationSecs,
+    multiPay: l.multiPay,
+    poolSize: l.orderPool.length,
+    createdAt: l.createdAt,
   };
 }
 

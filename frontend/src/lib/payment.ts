@@ -269,3 +269,123 @@ export async function waitForConfirmation(
 }
 
 export { formatQuai, parseQuai };
+
+export interface LinkInfo {
+  slug: string;
+  merchantAddress: string;
+  merchantId: string;
+  merchantName: string;
+  shopName: string;
+  tokenAddress: string;
+  amount: string;
+  amountDisplay: string;
+  symbol: string;
+  expiryDurationSecs: number;
+  multiPay: boolean;
+  poolSize: number;
+  createdAt: number;
+}
+
+/** Fetch a short link's metadata (publicly accessible — no auth needed). */
+export async function fetchLink(slug: string): Promise<LinkInfo | null> {
+  const res = await backendFetch(`/v1/links/${slug}`, { signal: AbortSignal.timeout(10_000) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`backend error ${res.status}`);
+  return (await res.json()) as LinkInfo;
+}
+
+export interface ClaimResult {
+  orderId: string;
+  merchant: string;
+  token: string;
+  amount: string;
+  poolRemaining: number;
+  /** Set when the server returned 429 — the retryAfterSecs until they can claim again. */
+  retryAfterSecs?: number;
+}
+
+/**
+ * Claim an orderId from a short link's pool.
+ * - On success: returns the claimed orderId.
+ * - On 429 (same wallet within 5 mins): returns the existing orderId from the response so the
+ *   customer can still complete payment on their already-claimed order.
+ * - On 503 (pool exhausted): throws with a user-friendly message.
+ */
+export async function claimOrderFromLink(slug: string, payerAddress: string): Promise<ClaimResult> {
+  const res = await backendFetch(`/v1/links/${slug}/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payerAddress }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 503) {
+    throw new Error('Payment link is fully booked — the merchant needs to add more order slots. Please try again later.');
+  }
+  const body = (await res.json()) as ClaimResult & { error?: string; retryAfterSecs?: number };
+  if (res.status === 429) {
+    // Return the already-claimed orderId so they can continue their payment
+    if (!body.orderId) throw new Error('You already used this link recently. Please wait a few minutes before trying again.');
+    return { ...body, retryAfterSecs: body.retryAfterSecs };
+  }
+  if (!res.ok) throw new Error(body.error ?? `backend error ${res.status}`);
+  return body;
+}
+
+/** Create a short link in the backend (requires merchant session cookie). */
+export async function createPaymentLink(payload: {
+  shopName?: string;
+  tokenAddress: string;
+  amount: string;
+  amountDisplay: string;
+  symbol: string;
+  expiryDurationSecs: number;
+  multiPay: boolean;
+  orderPool: string[];
+}): Promise<LinkInfo> {
+  const res = await backendFetch('/v1/links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `backend error ${res.status}`);
+  }
+  return (await res.json()) as LinkInfo;
+}
+
+/** Fetch all links for the currently-authenticated merchant. */
+export async function fetchMyLinks(): Promise<LinkInfo[]> {
+  const res = await backendFetch('/v1/links', { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`backend error ${res.status}`);
+  const body = (await res.json()) as { links: LinkInfo[] };
+  return body.links;
+}
+
+/**
+ * Poll until the order is confirmed ON-CHAIN only — does NOT wait for the webhook.
+ * Shows the success screen immediately after the tx settles.
+ */
+export async function waitForOnChainConfirmation(
+  merchant: string,
+  orderId: string,
+  onProgress?: (status: string) => void,
+  maxSeconds = 90,
+): Promise<boolean> {
+  const deadline = Date.now() + maxSeconds * 1000;
+  onProgress?.('Waiting for block confirmation…');
+  while (Date.now() < deadline) {
+    const settled = await isSettledOnChain(merchant, orderId).catch(() => false);
+    if (settled) return true;
+    // Also check via backend (faster when relayer is ahead)
+    try {
+      const order = await fetchOrderStatus(merchant, orderId);
+      if (order?.settled) return true;
+    } catch {
+      // backend unreachable — rely on on-chain check
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
