@@ -20,7 +20,7 @@ import {
   MUSDQ_ADDRESS,
   ZERO_ADDRESS,
   newOrderId,
-  registerOrder,
+  registerOrderBatch,
   createPaymentLink,
   fetchMyLinks,
   type LinkInfo,
@@ -53,10 +53,6 @@ export default function LinksPage() {
   const [poolTarget, setPoolTarget] = useState(10);
   const [busy, setBusy] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [registerProgress, setRegisterProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [links, setLinks] = useState<LinkInfo[]>([]);
@@ -102,7 +98,6 @@ export default function LinksPage() {
     setRegistering(true);
     setError(null);
     setLink(null);
-    setRegisterProgress({ done: 0, total: poolSize });
 
     let expiry = 0n;
     if (expiryHours.trim() !== "") {
@@ -118,13 +113,10 @@ export default function LinksPage() {
 
     const orderIds: string[] = [];
     try {
-      // Register all orders on-chain sequentially
-      for (let i = 0; i < poolSize; i++) {
-        const orderId = newOrderId();
-        await registerOrder(address, orderId, tokenAddress, units, expiry);
-        orderIds.push(orderId);
-        setRegisterProgress({ done: i + 1, total: poolSize });
-      }
+      for (let i = 0; i < poolSize; i++) orderIds.push(newOrderId());
+
+      // Register all orders on-chain in one atomic transaction
+      await registerOrderBatch(address, orderIds, tokenAddress, units, expiry);
       setRegistering(false);
 
       // Create the short link in the backend
@@ -158,7 +150,6 @@ export default function LinksPage() {
     } finally {
       setBusy(false);
       setRegistering(false);
-      setRegisterProgress(null);
     }
   };
 
@@ -338,50 +329,14 @@ export default function LinksPage() {
                           className="mt-0.5 shrink-0 text-amber-300"
                         />
                         <p className="text-xs text-amber-300">
-                          Creating this link will open your wallet{" "}
-                          <strong>{poolTarget}</strong> time
-                          {poolTarget !== 1 ? "s" : ""} to sign on-chain
-                          order registrations. You pay the gas; customers only
-                          pay for their payment transaction.
+                          Creating this link will ask your wallet to sign exactly{" "}
+                          <strong>1 transaction</strong> to pre-register all {poolTarget} payment slots at once.
+                          You pay the gas; customers only pay for their payment transaction.
                         </p>
                       </div>
                     </div>
                   )}
                 </div>
-
-                {/* Registration progress */}
-                {registerProgress && (
-                  <div className="rounded-xl border border-white/7 bg-[#171717] p-4">
-                    <div className="flex items-center gap-3 text-sm">
-                      <Loader2
-                        size={15}
-                        className="animate-spin text-[#38bdf8]"
-                      />
-                      <span className="text-[#8b93a7]">
-                        Registering order{" "}
-                        <span className="text-white font-medium">
-                          {registerProgress.done}
-                        </span>{" "}
-                        of{" "}
-                        <span className="text-white font-medium">
-                          {registerProgress.total}
-                        </span>
-                        …
-                      </span>
-                    </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-[#38bdf8] transition-all"
-                        style={{
-                          width: `${
-                            (registerProgress.done / registerProgress.total) *
-                            100
-                          }%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
 
                 {error && (
                   <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">

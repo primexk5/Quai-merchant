@@ -217,6 +217,30 @@ contract PayWithQuai is
         _registerOrder(orderId, token, amount, expiry, address(0));
     }
 
+    /// @notice Merchant pre-registers multiple orders in a single transaction — all share the same
+    ///         token, amount, and expiry. Use this to pre-fund a multi-pay link pool without
+    ///         requiring a separate wallet approval for every slot.
+    /// @dev    Capped at 50 orderIds to stay well within Quai's block gas limit. Each orderId is
+    ///         processed by the same `_registerOrder` as the single-order path, so fee locking,
+    ///         duplicate checks, and expiry validation all apply per-order. Reverts if any single
+    ///         orderId is already registered (atomically: all-or-nothing per call).
+    /// @param orderIds  Array of unique bytes32 order identifiers (max 50).
+    /// @param token     ERC-20 token address, or address(0) for native QUAI.
+    /// @param amount    Exact amount owed, in the token's smallest unit.
+    /// @param expiry    Unix timestamp after which the order cannot be paid; 0 = no expiry.
+    function registerOrderBatch(
+        bytes32[] calldata orderIds,
+        address token,
+        uint256 amount,
+        uint256 expiry
+    ) external {
+        require(orderIds.length > 0, "empty batch");
+        require(orderIds.length <= 50, "batch too large (max 50)");
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            _registerOrder(orderIds[i], token, amount, expiry, address(0));
+        }
+    }
+
     /// @notice Merchant pre-registers an order payable only by `expectedPayer`.
     /// @dev    Binds the order to one payer (anti-griefing: a third party can no longer settle
     ///         the order first and steal the merchant's sale). `expectedPayer = address(0)` means

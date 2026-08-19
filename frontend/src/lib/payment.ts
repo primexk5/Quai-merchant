@@ -87,6 +87,20 @@ export async function registerOrder(
   return receipt.hash;
 }
 
+export async function registerOrderBatch(
+  merchant: string,
+  orderIds: string[],
+  token: string,
+  amount: bigint,
+  expiry = 0n,
+): Promise<string> {
+  const signer = await getSigner();
+  await assertMerchantSigner(signer, merchant);
+  const tx = await getContract(signer).registerOrderBatch(orderIds, token, amount, expiry);
+  const receipt = await tx.wait();
+  return receipt.hash;
+}
+
 /** Merchant registers an order that only `expectedPayer` may settle (anti-front-running for
  *  prepaid/invoice flows). Zero address = anyone may pay (same as registerOrder). */
 export async function registerOrderWithPayer(
