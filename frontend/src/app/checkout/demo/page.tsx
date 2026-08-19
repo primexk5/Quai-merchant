@@ -4,13 +4,16 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Check,
+  Download,
   Loader2,
   LockKeyhole,
   ShieldCheck,
   Smartphone,
   Wallet,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { toPng } from "html-to-image";
+import { Receipt } from "@/components/ui/receipt";
 import { Logo } from "@/components/logo";
 import QRCode from "react-qr-code";
 
@@ -24,6 +27,7 @@ function blipDeepLink(amount: string, label: string) {
 import {
   newOrderId,
 } from "@/lib/payment";
+import { parseError } from "@/lib/utils";
 
 const AMOUNT_QUAI = "25.0";
 
@@ -40,6 +44,24 @@ export default function CheckoutDemoPage() {
   const [stage, setStage] = useState<Stage>({ name: "start" });
   const [payTab, setPayTab] = useState<"blip" | "wallet">("blip");
   const [isConnectingWallet, setIsConnectingWallet] = useState(false);
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadReceipt = async (orderId: string) => {
+    if (!receiptRef.current) return;
+    try {
+      setDownloading(true);
+      const dataUrl = await toPng(receiptRef.current, { cacheBust: true });
+      const link = document.createElement("a");
+      link.download = `receipt-${orderId.slice(0, 8)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const pay = async () => {
     if (stage.name !== "ready") return;
@@ -82,7 +104,7 @@ export default function CheckoutDemoPage() {
         txHash: "0x" + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join(""),
       });
     } catch (err: unknown) {
-      setStage({ name: "error", message: (err as Error).message || "Payment failed" });
+      setStage({ name: "error", message: parseError(err) });
     }
   };
 
@@ -117,13 +139,32 @@ export default function CheckoutDemoPage() {
           </div>
 
           <div className="mt-5 flex flex-col items-center gap-3">
+            <button
+              onClick={() => downloadReceipt(stage.orderId)}
+              disabled={downloading}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+            >
+              {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              {downloading ? "Generating receipt…" : "Download Receipt"}
+            </button>
             <Link
               href="/"
-              className="inline-flex items-center gap-2 text-sm text-[#8b93a7]"
+              className="inline-flex w-full items-center justify-center gap-2 text-sm text-[#8b93a7] py-2 transition hover:text-white"
             >
               <ArrowLeft size={15} />
               Return to QuaiMerchant
             </Link>
+          </div>
+          <div className="absolute left-[-9999px] top-0 opacity-0 pointer-events-none">
+            <Receipt
+              ref={receiptRef}
+              amount="25.0"
+              symbol="QUAI"
+              merchantAddress={stage.merchant}
+              orderId={stage.orderId}
+              txHash={stage.txHash}
+              date={new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+            />
           </div>
         </div>
       </main>

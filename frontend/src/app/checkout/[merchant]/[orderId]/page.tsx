@@ -5,13 +5,16 @@ import {
   ArrowLeft,
   Check,
   Clock,
+  Download,
   Loader2,
   LockKeyhole,
   ShieldCheck,
   Smartphone,
   Wallet,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { toPng } from "html-to-image";
+import { Receipt } from "@/components/ui/receipt";
 import QRCode from "react-qr-code";
 import { formatQuai, formatUnits } from "quais";
 import { Logo } from "@/components/logo";
@@ -36,6 +39,7 @@ import {
   getActiveWallet,
   storeWalletId,
 } from "@/lib/wallets";
+import { parseError } from "@/lib/utils";
 
 type Params = Promise<{ merchant: string; orderId: string }>;
 
@@ -58,6 +62,24 @@ export default function CheckoutPage({ params }: { params: Params }) {
   const [stage, setStage] = useState<Stage>({ name: "loading" });
   const [merchant, setMerchant] = useState("");
   const [orderId, setOrderId] = useState("");
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadReceipt = async () => {
+    if (!receiptRef.current) return;
+    try {
+      setDownloading(true);
+      const dataUrl = await toPng(receiptRef.current, { cacheBust: true });
+      const link = document.createElement("a");
+      link.download = `receipt-${orderId.slice(0, 8)}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDownloading(false);
+    }
+  };
   const [order, setOrder] = useState<OnChainOrder | null>(null);
   const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
   const [connected, setConnected] = useState<string | null>(null);
@@ -202,7 +224,7 @@ export default function CheckoutPage({ params }: { params: Params }) {
     } catch (err: unknown) {
       setStage({
         name: "error",
-        message: (err as Error).message || "Payment failed",
+        message: parseError(err),
       });
     }
   };
@@ -232,13 +254,32 @@ export default function CheckoutPage({ params }: { params: Params }) {
             </p>
           </div>
           <div className="mt-5 flex flex-col items-center gap-3">
+            <button
+              onClick={downloadReceipt}
+              disabled={downloading}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+            >
+              {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+              {downloading ? "Generating receipt…" : "Download Receipt"}
+            </button>
             <Link
               href="/"
-              className="inline-flex items-center gap-2 text-sm text-[#8b93a7]"
+              className="inline-flex w-full items-center justify-center gap-2 text-sm text-[#8b93a7] py-2 transition hover:text-white"
             >
               <ArrowLeft size={15} />
               Return to QuaiMerchant
             </Link>
+          </div>
+          <div className="absolute left-[-9999px] top-0 opacity-0 pointer-events-none">
+            <Receipt
+              ref={receiptRef}
+              amount={stage.net}
+              symbol={stage.symbol}
+              merchantAddress={merchant}
+              orderId={orderId}
+              txHash={stage.txHash}
+              date={new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+            />
           </div>
         </div>
       </main>

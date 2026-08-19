@@ -481,6 +481,7 @@ function Navbar() {
           <Link href="/checkout/demo" className="text-sm text-slate-500 transition hover:text-white">Checkout Demo</Link>
           <a href="#developers" className="text-sm text-slate-500 transition hover:text-white">Developers</a>
           <Link href="/docs" className="text-sm text-slate-500 transition hover:text-white">Docs</Link>
+          <Link href="/terms" className="text-sm text-slate-500 transition hover:text-white">Terms</Link>
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
@@ -505,6 +506,7 @@ function Navbar() {
             <Link href="/checkout/demo" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Checkout Demo</Link>
             <a href="#developers" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Developers</a>
             <Link href="/docs" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Docs</Link>
+            <Link href="/terms" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Terms</Link>
             
             <div className="my-2 h-px bg-white/5" />
             
@@ -532,6 +534,10 @@ function Footer() {
         <div className="flex items-center gap-5 text-xs text-slate-600">
           <Link href="/docs" className="transition hover:text-slate-400">
             Docs
+          </Link>
+          <span>•</span>
+          <Link href="/terms" className="transition hover:text-slate-400">
+            Terms of Service
           </Link>
           <span>•</span>
           <span>Built on Quai Network</span>

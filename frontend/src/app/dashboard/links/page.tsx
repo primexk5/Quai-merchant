@@ -2,6 +2,7 @@
 
 import { Check, Copy, ExternalLink, Link2, Loader2, Plus } from "lucide-react";
 import { useState } from "react";
+import { parseError } from "@/lib/utils";
 import { parseQuai } from "quais";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
@@ -120,7 +121,7 @@ export default function LinksPage() {
       setPayer("");
       setExpiryHours("");
     } catch (err) {
-      setError((err as Error).message || "Order registration failed.");
+      setError(parseError(err) || "Order registration failed.");
     } finally {
       setBusy(false);
     }
@@ -200,15 +201,27 @@ export default function LinksPage() {
 
                   <div>
                     <p className="mb-2 text-sm text-[#8b93a7]">
-                      Expiry (hours, optional)
+                      Expiry (optional)
                     </p>
-                    <input
-                      type="number"
+                    <select
                       value={expiryHours}
                       onChange={(e) => setExpiryHours(e.target.value)}
-                      placeholder="never expires"
-                      className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 font-mono text-sm text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
-                    />
+                      className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 font-mono text-sm text-white outline-none transition focus:border-[#38bdf8]/40 appearance-none"
+                    >
+                      <option value="">never expires</option>
+                      <option value="0.08333333333333333">5 mins</option>
+                      <option value="0.16666666666666666">10 mins</option>
+                      <option value="0.25">15 mins</option>
+                      <option value="0.3333333333333333">20 mins</option>
+                      <option value="0.5">30 mins</option>
+                      <option value="1">1 hour</option>
+                      <option value="2">2 hours</option>
+                      <option value="3">3 hours</option>
+                      <option value="6">6 hours</option>
+                      <option value="12">12 hours</option>
+                      <option value="24">24 hours</option>
+                      <option value="48">48 hours</option>
+                    </select>
                   </div>
 
                   <div className="sm:col-span-2">

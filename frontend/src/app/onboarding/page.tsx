@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-react";
 import { useState } from "react";
+import { parseError } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { storeWalletId } from "@/lib/wallets";
@@ -34,6 +35,7 @@ export default function OnboardingPage() {
   const [name, setName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [address, setAddress] = useState<string | null>(null);
+  const [agreed, setAgreed] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [merchant, setMerchant] = useState<OnboardedMerchant | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +79,7 @@ export default function OnboardingPage() {
       setMerchant((await res.json()) as OnboardedMerchant);
       setStep(2);
     } catch (err) {
-      setError((err as Error).message);
+      setError(parseError(err));
     } finally {
       setRegistering(false);
     }
@@ -107,7 +109,7 @@ export default function OnboardingPage() {
       setError(null);
       setAddress(accounts[0]);
     } catch (err) {
-      setError((err as Error).message);
+      setError(parseError(err));
     } finally {
       setBlipConnecting(false);
     }
@@ -387,18 +389,29 @@ export default function OnboardingPage() {
                   <ArrowRight size={15} />
                 </button>
               ) : (
-                <button
-                  onClick={complete}
-                  disabled={!address || registering}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
-                >
-                  {registering ? (
-                    <Loader2 size={15} className="animate-spin" />
-                  ) : (
-                    <Check size={15} />
-                  )}
-                  {registering ? "Registering…" : "Complete setup"}
-                </button>
+                <div className="flex flex-col items-end gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-[#8b93a7]">
+                    <input 
+                      type="checkbox" 
+                      checked={agreed} 
+                      onChange={(e) => setAgreed(e.target.checked)} 
+                      className="rounded border-white/10 bg-[#171717] accent-[#38bdf8]"
+                    />
+                    I acknowledge and accept the <Link href="/terms" className="text-[#38bdf8] hover:underline" target="_blank">Terms of Service</Link>
+                  </label>
+                  <button
+                    onClick={complete}
+                    disabled={!address || registering || !agreed}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
+                  >
+                    {registering ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Check size={15} />
+                    )}
+                    {registering ? "Registering…" : "Complete setup"}
+                  </button>
+                </div>
               )}
             </div>
           )}

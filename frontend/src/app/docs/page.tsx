@@ -600,9 +600,13 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
                 QuaiMerchant
               </span>
             </div>
-            <p className="text-xs text-[#4f5868]">
-              Built on Quai Network · Non-custodial payments
-            </p>
+            <div className="flex items-center gap-4 text-xs text-[#4f5868]">
+              <Link href="/terms" className="transition hover:text-[#8b93a7]">
+                Terms of Service
+              </Link>
+              <span>·</span>
+              <p>Built on Quai Network · Non-custodial payments</p>
+            </div>
           </footer>
         </article>
       </div>

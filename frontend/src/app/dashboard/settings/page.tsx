@@ -2,6 +2,7 @@
 
 import { Check, Loader2, Save, ShieldCheck, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
+import { parseError } from "@/lib/utils";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
@@ -52,7 +53,7 @@ export default function SettingsPage() {
       setSaved(true);
       void refresh();
     } catch (err) {
-      setSaveError((err as Error).message);
+      setSaveError(parseError(err));
     } finally {
       setSaving(false);
     }

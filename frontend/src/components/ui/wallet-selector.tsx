@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { parseError } from "@/lib/utils";
 import { Check, Loader2, RefreshCw, Wallet, X } from "lucide-react";
 import {
   connectWallet,
@@ -91,7 +92,7 @@ export function WalletSelector({
       setOpen(false);
       onConnected(address);
     } catch (err) {
-      setError((err as Error).message);
+      setError(parseError(err));
     } finally {
       setBusy(null);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { parseError } from "@/lib/utils";
 import { formatQuai, formatUnits } from "quais";
 import { backendFetch } from "@/lib/payment";
 import { getSessionToken, isLoggedIn } from "@/lib/auth";
@@ -110,7 +111,7 @@ export function useRelayerData(intervalMs = 8000) {
       }
       setError(null);
     } catch (err) {
-      setError((err as Error).message);
+      setError(parseError(err));
     } finally {
       setLoading(false);
     }

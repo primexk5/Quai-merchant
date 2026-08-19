@@ -12,6 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { parseError } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { isLoggedIn, loginWithWallet } from "@/lib/auth";
@@ -52,7 +53,7 @@ export default function LoginPage() {
       await loginWithWallet();
       router.replace("/dashboard");
     } catch (err) {
-      const msg = (err as Error).message;
+      const msg = parseError(err);
       setError(msg);
       if (/no merchant registered/i.test(msg)) setOnboardHint(true);
     } finally {
@@ -73,7 +74,7 @@ export default function LoginPage() {
       storeWalletId("blip:quai");
       setAddress(accounts[0]);
     } catch (err) {
-      setError((err as Error).message);
+      setError(parseError(err));
     } finally {
       setBlipConnecting(false);
     }
