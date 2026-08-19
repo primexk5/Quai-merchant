@@ -23,6 +23,7 @@ const sections = [
   { id: "register-order", label: "Step 1 — Register the order" },
   { id: "customer-pays", label: "Step 2 — Customer pays" },
   { id: "read-order", label: "Read an order on-chain" },
+  { id: "payment-links", label: "Payment Links" },
   { id: "mobile-payments", label: "Mobile payments & auth (Blip)" },
   { id: "webhook", label: "Step 3 — Verify the webhook" },
   { id: "confirmation", label: "Confirmation & fulfillment" },
@@ -600,6 +601,34 @@ export default function DocsPage() {
                 </li>
               ))}
             </ul>
+          </section>
+
+          {/* Payment Links */}
+          <section className="mt-16">
+            <SectionHeading
+              id="payment-links"
+              kicker="Shareable Checkouts"
+              title="Payment Links"
+            />
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              You don&apos;t need to build a custom checkout flow. Once an order is registered, you can simply direct customers to the hosted checkout page using a <strong className="text-white">Payment Link</strong>.
+            </p>
+
+            <div className="mt-5">
+              <CodeBlock
+                label="payment-link.ts"
+                code={`// Generate a shareable payment link for any registered order
+const paymentLink = \`\${ORIGIN}/checkout/\${merchant}/\${orderId}\`;
+
+// Share via email, SMS, or QR code
+console.log("Pay here:", paymentLink);`}
+              />
+            </div>
+
+            <Callout tone="success" title="Zero frontend required">
+              Payment Links automatically handle wallet connection, correct network prompting, Blip Pay mobile integration, and transaction execution. You only need to register the order backend and listen for the webhook.
+            </Callout>
           </section>
 
           {/* Mobile Payments (Blip Pay) */}

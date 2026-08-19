@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-react";
 import { useState } from "react";
 import { parseError } from "@/lib/utils";
 import { Logo } from "@/components/logo";
@@ -372,45 +372,56 @@ export default function OnboardingPage() {
           )}
 
           {step < 2 && (
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex w-full">
               {step === 0 ? (
-                <button
-                  onClick={() => {
-                    if (!name.trim()) {
-                      setError("Enter your business name before continuing.");
-                      return;
-                    }
-                    setError(null);
-                    setStep(1);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
-                >
-                  Continue
-                  <ArrowRight size={15} />
-                </button>
-              ) : (
-                <div className="flex flex-col items-end gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-[#8b93a7]">
-                    <input 
-                      type="checkbox" 
-                      checked={agreed} 
-                      onChange={(e) => setAgreed(e.target.checked)} 
-                      className="rounded border-white/10 bg-[#171717] accent-[#38bdf8]"
-                    />
-                    I acknowledge and accept the <Link href="/terms" className="text-[#38bdf8] hover:underline" target="_blank">Terms of Service</Link>
-                  </label>
+                <div className="flex w-full justify-end">
                   <button
-                    onClick={complete}
-                    disabled={!address || registering || !agreed}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
+                    onClick={() => {
+                      if (!name.trim()) {
+                        setError("Enter your business name before continuing.");
+                        return;
+                      }
+                      setError(null);
+                      setStep(1);
+                    }}
+                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
                   >
-                    {registering ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Check size={15} />
-                    )}
-                    {registering ? "Registering…" : "Complete setup"}
+                    Continue
+                    <ArrowRight size={15} />
                   </button>
+                </div>
+              ) : (
+                <div className="flex w-full flex-col-reverse sm:flex-row items-center justify-between gap-6 sm:gap-4">
+                  <button
+                    onClick={() => setStep(0)}
+                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-xl border border-white/10 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/5"
+                  >
+                    <ArrowLeft size={15} />
+                    Previous
+                  </button>
+                  <div className="flex w-full flex-col sm:flex-row items-center gap-4 sm:justify-end">
+                    <label className="flex items-center gap-2 cursor-pointer text-sm text-[#8b93a7]">
+                      <input 
+                        type="checkbox" 
+                        checked={agreed} 
+                        onChange={(e) => setAgreed(e.target.checked)} 
+                        className="rounded border-white/10 bg-[#171717] accent-[#38bdf8]"
+                      />
+                      I acknowledge and accept the <Link href="/terms" className="text-[#38bdf8] hover:underline" target="_blank">Terms</Link>
+                    </label>
+                    <button
+                      onClick={complete}
+                      disabled={!address || registering || !agreed}
+                      className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
+                    >
+                      {registering ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Check size={15} />
+                      )}
+                      {registering ? "Registering…" : "Complete"}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

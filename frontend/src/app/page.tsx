@@ -13,6 +13,7 @@ import {
   Code2,
   Copy,
   ExternalLink,
+  Link as LinkIcon,
   Menu,
   QrCode,
   ShieldCheck,
@@ -370,8 +371,9 @@ export default function Home() {
 
               <p className="mt-4 max-w-xl leading-7 text-slate-500">
                 Connect a wallet, review the payment, confirm and settle.
-                Merchants can also generate QR-based payment requests for
-                physical or mobile commerce.
+                Merchants can also generate QR-based payment requests and shareable
+                <strong className="text-slate-300"> Payment Links </strong>
+                for physical or mobile commerce. Share a simple link via email, SMS, or social media to get paid instantly.
               </p>
 
               <div className="mt-7 flex flex-wrap gap-3">
@@ -383,6 +385,11 @@ export default function Home() {
                 <div className="flex items-center gap-2 rounded-lg border border-white/7 bg-black/20 px-3 py-2 text-xs text-slate-400">
                   <QrCode className="h-3.5 w-3.5 text-sky-400" />
                   QR payments
+                </div>
+
+                <div className="flex items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-400">
+                  <LinkIcon className="h-3.5 w-3.5 text-sky-400" />
+                  Payment Links
                 </div>
               </div>
             </div>
