@@ -22,27 +22,123 @@ const sections = [
   { id: "before-you-start", label: "Before you start" },
   { id: "register-order", label: "Step 1 — Register the order" },
   { id: "customer-pays", label: "Step 2 — Customer pays" },
+  { id: "read-order", label: "Read an order on-chain" },
   { id: "mobile-payments", label: "Mobile payments & auth (Blip)" },
   { id: "webhook", label: "Step 3 — Verify the webhook" },
+  { id: "confirmation", label: "Confirmation & fulfillment" },
   { id: "quick-reference", label: "Quick reference" },
   { id: "testing", label: "Testing on testnet" },
 ];
 
-const received = `const provider = new JsonRpcProvider('https://orchard.rpc.quai.network', undefined, { usePathing: true });
+const installQuais = `npm install quais   # Quai's ethers fork — usePathing, formatQuai, parseQuai`;
+
+const received = `import { Contract, Wallet, JsonRpcProvider, id } from 'quais';   // NOT ethers
+
+const provider = new JsonRpcProvider('https://orchard.rpc.quai.network', undefined, { usePathing: true });
 const wallet   = new Wallet(BACKEND_PRIVATE_KEY, provider);   // your payout wallet
 const pay      = new Contract(PAYWITHQUAI_ADDRESS, PAYWITHQUAI_ABI, wallet);
 
-const orderId = keccak(\`ord_\${yourInternalRef}_\${Date.now()}\`); // unique bytes32
-const amount  = 25000000n;                                      // $25.00, smallest unit
+// Cryptographically random order id — Math.random()/timestamps are predictable, and a
+// guessed id is a DoS vector on the order-lookup API. Same pattern as the checkout:
+const bytes = crypto.getRandomValues(new Uint8Array(24));
+const orderId = id('ord_web_' + [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''));
+
+const amount  = 25000000n;   // $25.00 for a 6-decimal stablecoin; native QUAI = 18 decimals
 
 // registerOrder(orderId, token, amount, expiry)   expiry 0 = never expires
+// NOTE: msg.sender becomes the merchant — this payout wallet is the address customers pay to.
 const tx = await pay.registerOrder(orderId, TOKEN_ADDRESS, amount, 0n);
 await tx.wait();`;
+
+const abiSnippet = `const PAYWITHQUAI_ABI = [
+  // Register — merchant backend, broadcast from the payout wallet
+  "function registerOrder(bytes32 orderId, address token, uint256 amount, uint256 expiry)",
+  "function registerOrderWithPayer(bytes32 orderId, address token, uint256 amount, uint256 expiry, address payer)",
+  // Pay — customer wallet
+  "function payOrder(address merchant, bytes32 orderId)",
+  "function payOrderNative(address merchant, bytes32 orderId) payable",
+  // Read — anyone; display a checkout and verify settlement
+  "function getOrder(address merchant, bytes32 orderId) view returns (address merchant, bool settled, bool exists, uint16 feeBps, address token, uint256 amount, uint256 expiry, address feeRecipient, uint256 settledAt, address expectedPayer, uint64 nonce)",
+  "function isSettled(address merchant, bytes32 orderId) view returns (bool)",
+  // Manage — merchant wallet
+  "function cancelOrder(bytes32 orderId)",
+  "function purgeSettledOrder(bytes32 orderId)",
+];`;
 
 const erc20Pay = `await token.approve(PAYWITHQUAI_ADDRESS, amount);   // customer approves exact amount
 await pay.payOrder(MERCHANT_ADDRESS, orderId);       // customer pays`;
 
 const nativePay = `await pay.payOrderNative(MERCHANT_ADDRESS, orderId, { value: amount });`;
+
+const walletDetect = `// Only these wallets can sign for Quai — detect them in this order:
+//   window.quai     → Blip (mobile; injected inside Blip's in-app browser)
+//   window.pelagus  → Pelagus (desktop extension)
+//   window.ethereum → MetaMask (with Quai network added, chainId 15000)
+const provider = new BrowserProvider(window.quai ?? window.pelagus ?? window.ethereum);
+const accounts = await provider.send('quai_requestAccounts', []);   // EIP-1193
+const payer    = accounts[0];
+
+// MetaMask needs the Quai network first:
+await window.ethereum.request({
+  method: 'wallet_addEthereumChain',
+  params: [{
+    chainId: '0x3A98',   // 15000 — Quai Orchard testnet
+    chainName: 'Quai Network Orchard',
+    nativeCurrency: { name: 'Quai', symbol: 'QUAI', decimals: 18 },
+    rpcUrls: ['https://orchard.rpc.quai.network'],
+    blockExplorerUrls: ['https://orchard.quaiscan.io'],
+  }],
+});`;
+
+const readOrder = `// The checkout renders the order FROM THE CHAIN — never trust a client-side
+// cart total. getOrder is authoritative for amount, fee and payer restriction.
+const provider = new JsonRpcProvider(RPC_URL, undefined, { usePathing: true });
+const pay      = new Contract(PAYWITHQUAI_ADDRESS, PAYWITHQUAI_ABI, provider);
+
+const order = await pay.getOrder(MERCHANT_ADDRESS, orderId);
+// { merchant, settled, exists, feeBps, token, amount, expiry,
+//   feeRecipient, settledAt, expectedPayer, nonce }
+
+if (!order.exists)                 return 'order not found';
+if (order.settled)                 return 'already paid';
+if (order.expiry > 0n && Date.now() / 1000 > Number(order.expiry)) return 'expired';
+
+const net = order.amount - (order.amount * BigInt(order.feeBps)) / 10000n;
+// Display: \${formatQuai(order.amount)} QUAI due · includes \${order.feeBps / 100}% fee ·
+//          merchant receives \${formatQuai(net)} QUAI
+// expectedPayer != address(0) → only that wallet may pay (payOrder reverts with WrongPayer)`;
+
+const confirmPoll = `// After the customer's payOrderNative tx confirms, the relayer re-checks
+// settlement and POSTs the signed webhook. Poll until delivered — that's the
+// signal to fulfill. On-chain settlement alone is NOT treated as complete.
+
+let settled = false;
+const deadline = Date.now() + 120_000;
+while (Date.now() < deadline) {
+  const res    = await fetch(\`https://<platform>/v1/orders/\${merchant}/\${orderId}\`);
+  const status = await res.json();
+  // { merchant, orderId, token, amount, feeBps, expiry, settled,
+  //   webhook: { status: 'pending' | 'delivered' | 'failed', attempts } | null }
+  if (status.settled && status.webhook?.status === 'delivered') {
+    settled = true;
+    break;
+  }
+  await new Promise((r) => setTimeout(r, 5000));
+}
+
+// Fallback if the relayer API is unreachable: pay.isSettled(merchant, orderId)`;
+
+const envVars = `# Client (browser) — MUST be NEXT_PUBLIC_* or it ships as undefined
+NEXT_PUBLIC_RPC_URL=https://orchard.rpc.quai.network
+NEXT_PUBLIC_CHAIN_ID=15000
+NEXT_PUBLIC_PAYWITHQUAI_ADDRESS=0x00707FB75afede47F3cE44A357fb2fb29C14734e
+NEXT_PUBLIC_MUSDQ_ADDRESS=0x003fafB5126a5296c6edC7C23De55daf2E84B503   # mock stablecoin (6 decimals)
+NEXT_PUBLIC_BACKEND_URL=https://quai-merchant-three.vercel.app
+
+# Server-only — NEVER prefix with NEXT_PUBLIC_ (ships to the browser bundle)
+BACKEND_PRIVATE_KEY=...   # payout wallet: signs registrations, receives funds
+WEBHOOK_SECRET=...        # shown once at onboarding
+ADMIN_API_KEY=...         # relayer admin routes (onboarding)`;
 
 const webhookJson = `{
   "id":   "0xabc...:3",
@@ -90,8 +186,13 @@ app.post('/webhooks/paywithquai', express.raw({ type: 'application/json' }), (re
   res.sendStatus(200);   // 2xx within 10s = success. Anything else is retried.
 });`;
 
-const testnet = `npx hardhat run scripts/deploy.js --network cyprus1   # deploys contract + mock stablecoin
-npx hardhat run scripts/payDemo.js --network cyprus1  # mints, registers, approves, pays`;
+const testnet = `# Already deployed on Cyprus-1 (Orchard testnet) — no deployment needed:
+#   PayWithQuai proxy: 0x00707FB75afede47F3cE44A357fb2fb29C14734e
+#   Mock stablecoin:   0x003fafB5126a5296c6edC7C23De55daf2E84B503
+
+cd contracts
+npm run deploy:testnet   # (optional) deploy your own proxy + mock stablecoin
+npm run demo:testnet     # mints, registers, approves, pays a demo order`;
 
 function SectionHeading({
   id,
@@ -290,6 +391,41 @@ export default function DocsPage() {
             </div>
 
             <div className="mt-5 space-y-4">
+              <Callout tone="success" title="Already deployed — start coding now">
+                The PayWithQuai proxy is live on Cyprus-1 (Orchard testnet):
+                <span className="mt-2 block font-mono text-[13px] text-[#c9d4e0]">
+                  {`0x00707FB75afede47F3cE44A357fb2fb29C14734e`}
+                </span>
+                <span className="mt-2 block">
+                  RPC{" "}
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">
+                    https://orchard.rpc.quai.network
+                  </span>{" "}
+                  · chainId{" "}
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">15000</span>{" "}
+                  · mock stablecoin{" "}
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">
+                    0x003fafB5126a5296c6edC7C23De55daf2E84B503
+                  </span>
+                  {" "}(6 decimals). Your payout wallet and this contract must be in
+                  the same zone — Cyprus-1.
+                </span>
+              </Callout>
+
+              <Callout tone="info" title="Use the `quais` package, not ethers">
+                All examples use{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">quais</span>{" "}
+                — Quai&apos;s ethers fork. It ships{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">
+                  usePathing
+                </span>{" "}
+                (zone-aware RPC),{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">
+                  formatQuai / parseQuai
+                </span>{" "}
+                and the wallet types used below.
+              </Callout>
+
               <Callout tone="info" title="Same zone — this matters">
                 Quai is sharded. Your payout wallet, your customers, and the
                 contract must all be in the same zone (the contract address
@@ -313,6 +449,10 @@ export default function DocsPage() {
               kicker="Step 1"
               title="Register the order (from your backend)"
             />
+
+            <div className="mt-5">
+              <CodeBlock label="install" code={installQuais} />
+            </div>
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
               Register every expected payment before the customer pays.
@@ -338,6 +478,20 @@ export default function DocsPage() {
               <li className="flex gap-2.5">
                 <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
                 <span>
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">msg.sender</span>{" "}
+                  is the <span className="text-white">merchant</span> — the same address
+                  customers pass to{" "}
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">payOrder(merchant, orderId)</span>.
+                  Orders are keyed by{" "}
+                  <span className="font-mono text-[13px] text-[#c9d4e0]">
+                    orderKey(merchant, orderId)
+                  </span>
+                  , so a wallet can only see the orders it registered.
+                </span>
+              </li>
+              <li className="flex gap-2.5">
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
+                <span>
                   The platform fee (0.3%) is locked into the order automatically
                   here — you don&apos;t pass it.
                 </span>
@@ -352,7 +506,17 @@ export default function DocsPage() {
                   can&apos;t be front-run.
                 </span>
               </li>
+              <li className="flex gap-2.5">
+                <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
+                <span>
+                  Full ABI for the functions above:
+                </span>
+              </li>
             </ul>
+
+            <div className="mt-3">
+              <CodeBlock label="paywithquai.abi.js" code={abiSnippet} />
+            </div>
           </section>
 
           {/* Step 2 */}
@@ -378,11 +542,64 @@ export default function DocsPage() {
               <CodeBlock label="pay.ts" code={nativePay} />
             </div>
 
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              The <span className="font-mono text-[13px] text-[#c9d4e0]">merchant</span>{" "}
+              argument is the payout wallet that registered the order. On the checkout
+              page, connect the customer&apos;s wallet like this:
+            </p>
+            <div className="mt-3">
+              <CodeBlock label="connect.ts" code={walletDetect} />
+            </div>
+
             <Callout tone="success" title="One transaction, zero double-fulfillment">
               The contract splits off the fee, forwards the rest to your wallet,
               and marks the order settled — all in one transaction. A second
               payment reverts, so double-fulfillment is impossible.
             </Callout>
+          </section>
+
+          {/* Read an order on-chain */}
+          <section className="mt-16">
+            <SectionHeading
+              id="read-order"
+              kicker="Checkout"
+              title="Read an order on-chain"
+            />
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              Every order is a public on-chain record. Build the checkout page
+              URL{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">
+                /checkout/&lt;merchant&gt;/&lt;orderId&gt;
+              </span>{" "}
+              and render the total, fee and payer restriction{" "}
+              <span className="text-white">from the contract</span> — never from a
+              client-side cart value.
+            </p>
+
+            <div className="mt-5">
+              <CodeBlock label="read-order.ts" code={readOrder} />
+            </div>
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              <span className="font-mono text-[13px] text-[#c9d4e0]">getOrder</span>{" "}
+              is the authoritative source for the checkout UI — it works with a
+              read-only provider (no wallet needed). Order states:
+            </p>
+
+            <ul className="mt-4 space-y-2 text-sm leading-6 text-[#8b93a7]">
+              {[
+                "exists = false → show “order not found” (or fall back to GET /v1/orders/... if the registration tx isn't mined yet)",
+                "settled = true → show “already paid”, never ask again",
+                "expiry > 0 and now > expiry → show “expired”, ask the merchant for a fresh link",
+                "expectedPayer ≠ address(0) → only that wallet can pay; payOrder reverts with WrongPayer",
+              ].map((item) => (
+                <li key={item} className="flex gap-2.5">
+                  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#38bdf8]/6" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </section>
 
           {/* Mobile Payments (Blip Pay) */}
@@ -430,7 +647,8 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
             </Callout>
 
             <Callout tone="info" title="Automatic detection">
-              When a user browses your checkout, onboarding, or login pages from within the Blip in-app browser, it automatically injects \`window.quai\`. You can detect it to seamlessly trigger standard EIP-1193 interactions (connecting, signing, or paying) with just a tap!
+              When a user browses your checkout, onboarding, or login pages from within the Blip in-app browser, it automatically injects{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">window.quai</span>. You can detect it to seamlessly trigger standard EIP-1193 interactions (connecting, signing, or paying) with just a tap!
             </Callout>
           </section>
 
@@ -469,6 +687,49 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
             </Callout>
           </section>
 
+          {/* Confirmation & fulfillment */}
+          <section className="mt-16">
+            <SectionHeading
+              id="confirmation"
+              kicker="Fulfillment"
+              title="Confirmation & fulfillment"
+            />
+
+            <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
+              The checkout waits for the relayer to confirm the webhook —{" "}
+              <span className="text-white">not</span> just on-chain settlement.
+              Poll{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">
+                GET /v1/orders/&lt;merchant&gt;/&lt;orderId&gt;
+              </span>{" "}
+              until{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">
+                settled === true &amp;&amp; webhook.status === &quot;delivered&quot;
+              </span>{" "}
+              (up to ~120s), with an on-chain{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">isSettled</span>{" "}
+              fallback when the API is unreachable:
+            </p>
+
+            <div className="mt-5">
+              <CodeBlock label="wait-for-confirmation.ts" code={confirmPoll} />
+            </div>
+
+            <Callout tone="info" title="Fulfill on the signed webhook, not a chain read">
+              A chain read tells you the customer paid — but{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">
+                webhook.status === &quot;delivered&quot;
+              </span>{" "}
+              tells you the signed{" "}
+              <span className="font-mono text-[13px] text-[#c9d4e0]">
+                payment.confirmed
+              </span>{" "}
+              event reached <span className="text-white">your</span> endpoint. For
+              order fulfillment (shipping, access, credits) treat the signed
+              webhook as the receipt of record.
+            </Callout>
+          </section>
+
           {/* Quick reference */}
           <section className="mt-16">
             <SectionHeading
@@ -484,7 +745,10 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
               <CodeBlock
                 label="GET"
                 code={`GET /v1/orders/0x<merchant>/0x<orderId>
-→ { merchant, orderId, token, amount, feeBps, expiry, settled, webhook }`}
+→ {
+    merchant, orderId, token, amount, feeBps, expiry, settled,
+    webhook: { status: "pending" | "delivered" | "failed", attempts } | null
+  }`}
               />
             </div>
 
@@ -510,6 +774,16 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
                       "used the ERC-20 call on a native order, or vice-versa",
                     ],
                     ["OrderNotFound", "no such order for that merchant"],
+                    [
+                      "WrongPayer",
+                      "order registered with registerOrderWithPayer and you're not the expected payer",
+                    ],
+                    [
+                      "OrderAlreadyExists",
+                      "this orderId is already registered — use a fresh random id",
+                    ],
+                    ["TokenNotAccepted", "token isn't allowlisted on the contract"],
+                    ["ZeroAmount", "order amount was zero"],
                   ].map(([revert, meaning]) => (
                     <tr key={revert} className="border-b border-white/7 last:border-0">
                       <td className="px-4 py-3 font-mono text-[13px] text-[#e0a95e]">
@@ -520,6 +794,13 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <p className="mt-6 text-sm font-medium text-white">
+              Environment variables (from the reference frontend):
+            </p>
+            <div className="mt-3">
+              <CodeBlock label=".env" code={envVars} />
             </div>
 
             <p className="mt-6 text-sm font-medium text-white">
@@ -562,14 +843,28 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
               <CodeBlock label="Terminal" code={testnet} />
             </div>
 
-            <Callout tone="info" title="Running locally">
-              Run a relayer locally against the same RPC. For local endpoints
-              only, set{" "}
-              <span className="font-mono text-[13px] text-[#c9d4e0]">
-                WEBHOOK_ALLOW_INSECURE_URLS=true
-              </span>{" "}
-              to allow <span className="font-mono text-[13px] text-[#c9d4e0]">http://localhost</span>{" "}
-              webhook targets.
+            <Callout tone="info" title="Running the platform locally">
+              <span className="mt-1 block">
+                Backend relayer (indexer + webhook dispatcher + API):
+              </span>
+              <span className="mt-1 block font-mono text-[13px] text-[#c9d4e0]">
+                {`cd backend && npm install && cp .env.example .env && npm run dev`}
+              </span>
+              <span className="mt-3 block">
+                For local endpoints only, set{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">
+                  WEBHOOK_ALLOW_INSECURE_URLS=true
+                </span>{" "}
+                to allow{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">
+                  http://localhost
+                </span>{" "}
+                webhook targets. A throwaway webhook receiver is included:{" "}
+                <span className="font-mono text-[13px] text-[#c9d4e0]">
+                  npm run webhook-receiver
+                </span>
+                .
+              </span>
             </Callout>
           </section>
 
