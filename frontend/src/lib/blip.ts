@@ -14,6 +14,8 @@ import { useState, useEffect } from "react";
 /** True when running inside Blip's built-in browser (window.quai is injected). */
 export function isInsideBlipBrowser(): boolean {
   if (typeof window === "undefined") return false;
+  // Pelagus also injects window.quai for backwards compatibility.
+  if (window.quai && (window.quai as { isPelagus?: boolean }).isPelagus) return false;
   return !!window.quai;
 }
 

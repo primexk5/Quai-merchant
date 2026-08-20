@@ -617,9 +617,11 @@ function sessionCookie(name: string, value: string, maxAgeMs: number, secure: bo
     `${name}=${value}`,
     'Path=/',
     'HttpOnly',
-    `Max-Age=${Math.floor(maxAgeMs / 1000)}`,
     `SameSite=${sameSite}`,
   ];
+  if (value === '') {
+    parts.push('Max-Age=0');
+  }
   if (secure) parts.push('Secure');
   return parts.join('; ');
 }

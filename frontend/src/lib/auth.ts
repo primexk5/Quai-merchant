@@ -63,7 +63,7 @@ function hasMarkerCookie(): boolean {
 
 function setMarkerCookie(): void {
   if (!isBrowser()) return;
-  document.cookie = `${MARKER_COOKIE}=1; path=/; samesite=lax; max-age=86400`;
+  document.cookie = `${MARKER_COOKIE}=1; path=/; samesite=lax`;
 }
 
 function clearMarkerCookie(): void {
