@@ -31,7 +31,7 @@ export default function TermsPage() {
           </p>
           
           <p>
-            Welcome to Quai Merchant. These Terms of Service ("Terms") govern your use of the Quai Merchant application, website, and related services (collectively, the "Service"). By using the Service, you agree to these Terms. If you do not agree to these Terms, do not use the Service.
+            Welcome to Quai Merchant. These Terms of Service (&quot;Terms&quot;) govern your use of the Quai Merchant application, website, and related services (collectively, the &quot;Service&quot;). By using the Service, you agree to these Terms. If you do not agree to these Terms, do not use the Service.
           </p>
 
           <h2>1. Description of Service</h2>
@@ -75,7 +75,7 @@ export default function TermsPage() {
 
           <h2>6. No Warranties</h2>
           <p>
-            The Service is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, whether express or implied. We do not guarantee that the Service will be uninterrupted, error-free, secure, or available at any particular time or location.
+            The Service is provided &quot;AS IS&quot; and &quot;AS AVAILABLE&quot; without warranties of any kind, whether express or implied. We do not guarantee that the Service will be uninterrupted, error-free, secure, or available at any particular time or location.
           </p>
 
           <h2>7. Changes to Terms</h2>

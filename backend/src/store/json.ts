@@ -138,36 +138,36 @@ export class JsonStore implements Store {
     }
   }
 
-  getCursor(scope: string): number | undefined {
+  async getCursor(scope: string): Promise<number | undefined> {
     return this.data.cursors[scope];
   }
 
-  setCursor(scope: string, blockNumber: number): void {
+  async setCursor(scope: string, blockNumber: number): Promise<void> {
     this.data.cursors[scope] = blockNumber;
     this.flush();
   }
 
-  upsertMerchant(m: Merchant): void {
+  async upsertMerchant(m: Merchant): Promise<void> {
     const key = m.address.toLowerCase();
     this.data.merchants[key] = { ...m, address: key };
     this.byMerchantId.set(m.merchantId, key);
     this.flush();
   }
 
-  getMerchantByAddress(address: string): Merchant | undefined {
+  async getMerchantByAddress(address: string): Promise<Merchant | undefined> {
     return this.data.merchants[address.toLowerCase()];
   }
 
-  getMerchantById(merchantId: string): Merchant | undefined {
+  async getMerchantById(merchantId: string): Promise<Merchant | undefined> {
     const key = this.byMerchantId.get(merchantId);
     return key ? this.data.merchants[key] : undefined;
   }
 
-  listMerchants(): Merchant[] {
+  async listMerchants(): Promise<Merchant[]> {
     return Object.values(this.data.merchants);
   }
 
-  insertDeliveryIfAbsent(d: WebhookDelivery): boolean {
+  async insertDeliveryIfAbsent(d: WebhookDelivery): Promise<boolean> {
     if (this.data.deliveries[d.id]) return false;
     this.data.deliveries[d.id] = d;
     this.byOrderKey.set(orderKey(d.payload.data.merchant, d.payload.data.orderId), d.id);
@@ -175,16 +175,16 @@ export class JsonStore implements Store {
     return true;
   }
 
-  getDelivery(id: string): WebhookDelivery | undefined {
+  async getDelivery(id: string): Promise<WebhookDelivery | undefined> {
     return this.data.deliveries[id];
   }
 
-  getDeliveryByOrder(merchant: string, orderId: string): WebhookDelivery | undefined {
+  async getDeliveryByOrder(merchant: string, orderId: string): Promise<WebhookDelivery | undefined> {
     const id = this.byOrderKey.get(orderKey(merchant, orderId));
     return id ? this.data.deliveries[id] : undefined;
   }
 
-  requeueSkippedForMerchant(m: Merchant): number {
+  async requeueSkippedForMerchant(m: Merchant): Promise<number> {
     const addr = m.address.toLowerCase();
     let requeued = 0;
     for (const d of Object.values(this.data.deliveries)) {
@@ -213,7 +213,7 @@ export class JsonStore implements Store {
     return requeued;
   }
 
-  updateDelivery(d: WebhookDelivery): void {
+  async updateDelivery(d: WebhookDelivery): Promise<void> {
     this.data.deliveries[d.id] = d;
     this.flush();
   }
@@ -222,10 +222,10 @@ export class JsonStore implements Store {
    *  snapshot) — i.e. nothing (admin retry, requeue, another sweep) touched it in the meantime.
    *  All four fields are compared: a retry resets attempts/status to the same values, so
    *  nextAttemptAt/updatedAt carry the identity. Returns false (update discarded) otherwise. */
-  updateDeliveryIfCurrent(
+  async updateDeliveryIfCurrent(
     d: WebhookDelivery,
     guard: Pick<WebhookDelivery, 'attempts' | 'status' | 'nextAttemptAt' | 'updatedAt'>,
-  ): boolean {
+  ): Promise<boolean> {
     const current = this.data.deliveries[d.id];
     if (
       !current ||
@@ -241,14 +241,14 @@ export class JsonStore implements Store {
     return true;
   }
 
-  getDueDeliveries(now: number, limit: number): WebhookDelivery[] {
+  async getDueDeliveries(now: number, limit: number): Promise<WebhookDelivery[]> {
     return Object.values(this.data.deliveries)
       .filter((d) => d.status === 'pending' && d.nextAttemptAt <= now)
       .sort((a, b) => a.nextAttemptAt - b.nextAttemptAt)
       .slice(0, limit);
   }
 
-  listDeliveries(limit: number): WebhookDelivery[] {
+  async listDeliveries(limit: number): Promise<WebhookDelivery[]> {
     return Object.values(this.data.deliveries)
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
@@ -258,7 +258,7 @@ export class JsonStore implements Store {
    *  login from minting unbounded sessions. Oldest sessions are evicted first. */
   private static readonly MAX_SESSIONS_PER_MERCHANT = 20;
 
-  createSession(s: Session): void {
+  async createSession(s: Session): Promise<void> {
     const own = Object.hasOwn(this.data.sessions, s.token);
     if (!own) {
       const existing = Object.values(this.data.sessions).filter((x) => x.merchantId === s.merchantId);
@@ -272,7 +272,7 @@ export class JsonStore implements Store {
     this.flush();
   }
 
-  getSession(token: string): Session | undefined {
+  async getSession(token: string): Promise<Session | undefined> {
     // Object.hasOwn is load-bearing: a plain-object index with a `__proto__`/`constructor` key
     // lookup would otherwise leak Object.prototype as a "session" (truthy, unexpired).
     if (!Object.hasOwn(this.data.sessions, token)) return undefined;
@@ -286,14 +286,14 @@ export class JsonStore implements Store {
     return s;
   }
 
-  deleteSession(token: string): void {
+  async deleteSession(token: string): Promise<void> {
     if (Object.hasOwn(this.data.sessions, token)) {
       delete this.data.sessions[token];
       this.flush();
     }
   }
 
-  createNonce(nonce: string, address: string, expiresAt: number): void {
+  async createNonce(nonce: string, address: string, expiresAt: number): Promise<void> {
     const now = Date.now();
     // Opportunistic sweep so expired nonces can't accumulate unboundedly.
     for (const [n, v] of Object.entries(this.data.nonces)) {
@@ -303,7 +303,7 @@ export class JsonStore implements Store {
     this.flush();
   }
 
-  consumeNonce(nonce: string): string | undefined {
+  async consumeNonce(nonce: string): Promise<string | undefined> {
     if (!Object.hasOwn(this.data.nonces, nonce)) return undefined;
     const v = this.data.nonces[nonce];
     if (!v) return undefined;
@@ -313,29 +313,29 @@ export class JsonStore implements Store {
     return v.address;
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.flush();
   }
 
   // --- payment links ---
 
-  upsertLink(link: PaymentLink): void {
+  async upsertLink(link: PaymentLink): Promise<void> {
     this.data.links[link.slug] = link;
     this.flush();
   }
 
-  getLink(slug: string): PaymentLink | undefined {
+  async getLink(slug: string): Promise<PaymentLink | undefined> {
     return Object.hasOwn(this.data.links, slug) ? this.data.links[slug] : undefined;
   }
 
-  listLinksForMerchant(merchantAddress: string): PaymentLink[] {
+  async listLinksForMerchant(merchantAddress: string): Promise<PaymentLink[]> {
     const addr = merchantAddress.toLowerCase();
     return Object.values(this.data.links)
       .filter((l) => l.merchantAddress === addr)
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  claimOrderFromPool(slug: string, payerAddress: string): string | undefined {
+  async claimOrderFromPool(slug: string, payerAddress: string): Promise<string | undefined> {
     const link = this.data.links[slug];
     if (!link || link.orderPool.length === 0) return undefined;
     const orderId = link.orderPool.shift()!; // pop from front
@@ -353,7 +353,7 @@ export class JsonStore implements Store {
     return orderId;
   }
 
-  settleClaimedOrder(slug: string, orderId: string): void {
+  async settleClaimedOrder(slug: string, orderId: string): Promise<void> {
     const claims = this.data.claims[slug];
     if (!claims) return;
     const idx = claims.findIndex((c) => c.orderId === orderId);
@@ -363,7 +363,7 @@ export class JsonStore implements Store {
     }
   }
 
-  upsertClaim(claim: LinkClaim): void {
+  async upsertClaim(claim: LinkClaim): Promise<void> {
     if (!this.data.claims[claim.slug]) this.data.claims[claim.slug] = [];
     const list = this.data.claims[claim.slug]!;
     const idx = list.findIndex((c) => c.orderId === claim.orderId);
@@ -372,7 +372,7 @@ export class JsonStore implements Store {
     this.flush();
   }
 
-  getLatestClaim(slug: string, payerAddress: string): LinkClaim | undefined {
+  async getLatestClaim(slug: string, payerAddress: string): Promise<LinkClaim | undefined> {
     const claims = this.data.claims[slug];
     if (!claims) return undefined;
     const addr = payerAddress.toLowerCase();

@@ -64,7 +64,7 @@ export class Indexer {
   /** On first ever boot for this (chain, contract), seed the cursor so we don't rescan the whole
    *  chain from block 0. */
   private async initCursor(): Promise<void> {
-    if (this.store.getCursor(this.scope) !== undefined) return;
+    if (await this.store.getCursor(this.scope) !== undefined) return;
     let start: number;
     if (this.cfg.START_BLOCK !== undefined) {
       start = Math.max(0, this.cfg.START_BLOCK - 1); // so the first processed block == START_BLOCK
@@ -73,14 +73,14 @@ export class Indexer {
       start = Math.max(0, head - this.cfg.CONFIRMATIONS);
       logger.warn({ start }, 'no START_BLOCK set — indexing only new events from current head');
     }
-    this.store.setCursor(this.scope, start);
+    await this.store.setCursor(this.scope, start);
   }
 
   private async tick(): Promise<void> {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
-      const cursor = this.store.getCursor(this.scope) ?? 0;
+      const cursor = (await this.store.getCursor(this.scope)) ?? 0;
       const head = await this.client.getBlockNumber();
       const safeHead = head - this.cfg.CONFIRMATIONS; // finality boundary
       if (safeHead <= cursor) return; // nothing newly final
@@ -92,7 +92,7 @@ export class Indexer {
       const events = await this.client.getPaymentEvents(from, to);
       for (const e of events) await this.processEvent(e);
 
-      this.store.setCursor(this.scope, to);
+      await this.store.setCursor(this.scope, to);
       if (events.length > 0 || to < safeHead) {
         logger.info({ from, to, head, processed: events.length }, 'indexed block range');
       }
@@ -108,7 +108,7 @@ export class Indexer {
     const id = paymentId(e);
 
     // Idempotency: if we already recorded this settlement, do nothing.
-    if (this.store.getDelivery(id)) return;
+    if (await this.store.getDelivery(id)) return;
 
     // Finality guard #2: the event must correspond to on-chain settled state. We read the full
     // order (not just isSettled) in the same round-trip so the webhook can report the exact fee
@@ -120,7 +120,7 @@ export class Indexer {
       return;
     }
 
-    const merchant = this.store.getMerchantByAddress(e.merchant);
+    const merchant = await this.store.getMerchantByAddress(e.merchant);
     const nowMs = this.now();
     const payload = this.buildPayload(id, e, merchant?.merchantId ?? unknownMerchantId(e.merchant), order.feeBps, order.nonce);
 
@@ -138,7 +138,7 @@ export class Indexer {
         createdAt: nowMs,
         updatedAt: nowMs,
       };
-      this.store.insertDeliveryIfAbsent(skipped);
+      await this.store.insertDeliveryIfAbsent(skipped);
       logger.warn({ id, merchant: e.merchant }, 'payment for unregistered merchant — webhook skipped');
       return;
     }
@@ -155,7 +155,7 @@ export class Indexer {
       createdAt: nowMs,
       updatedAt: nowMs,
     };
-    const inserted = this.store.insertDeliveryIfAbsent(delivery);
+    const inserted = await this.store.insertDeliveryIfAbsent(delivery);
     if (inserted) {
       logger.info({ id, merchantId: merchant.merchantId, orderId: e.orderId }, 'payment confirmed — webhook queued');
     }

@@ -50,15 +50,15 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     next();
   });
 
-  app.get('/health', (_req, res) => {
+  app.get('/health', asyncHandler(async (_req, res) => {
     const scope = cursorScope(cfg.CHAIN_ID, cfg.PAYWITHQUAI_ADDRESS);
     res.json({
       status: 'ok',
       contract: client.address,
       chainId: cfg.CHAIN_ID,
-      cursor: store.getCursor(scope) ?? null,
+      cursor: (await store.getCursor(scope)) ?? null,
     });
-  });
+  }));
 
   // The only unauthenticated route that performs an upstream RPC call — rate-limit per IP so it
   // can't be used to amplify traffic against the Quai node.
@@ -83,7 +83,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     const order = await client.getOrder(merchant, orderId);
     if (!order.exists) return res.status(404).json({ error: 'order not found' });
 
-    const delivery = store.getDeliveryByOrder(merchant, orderId);
+    const delivery = await store.getDeliveryByOrder(merchant, orderId);
     res.json({
       merchant,
       orderId,
@@ -123,7 +123,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
   // (CPU) and mints store writes, so an unthrottled endpoint is a cheap DoS and oracle vector.
   const authLimiter = rateLimit({ windowMs: LOGIN_WINDOW_MS, max: 20 });
 
-  app.post('/v1/auth/challenge', authLimiter, (req, res) => {
+  app.post('/v1/auth/challenge', authLimiter, asyncHandler(async (req, res) => {
     const parsed = ChallengeSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
@@ -135,12 +135,12 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       return res.status(400).json({ error: 'address fails checksum validation' });
     }
     const nonce = randomBytes(24).toString('hex');
-    store.createNonce(nonce, address.toLowerCase(), Date.now() + LOGIN_WINDOW_MS);
+    await store.createNonce(nonce, address.toLowerCase(), Date.now() + LOGIN_WINDOW_MS);
     const message = `quai-merchant-login:${address}:${nonce}:${cfg.CHAIN_ID}:${cfg.LOGIN_REALM}`;
     res.json({ nonce, message, expiresAt: Date.now() + LOGIN_WINDOW_MS });
-  });
+  }));
 
-  app.post('/v1/auth/login', authLimiter, (req, res) => {
+  app.post('/v1/auth/login', authLimiter, asyncHandler(async (req, res) => {
     const parsed = LoginSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
@@ -173,7 +173,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     }
 
     // Single-use: consuming the nonce makes any replay of this signature fail from here on.
-    const bound = nonce ? store.consumeNonce(nonce) : undefined;
+    const bound = nonce ? await store.consumeNonce(nonce) : undefined;
     if (bound !== address.toLowerCase()) {
       return res.status(401).json({ error: 'invalid credentials' });
     }
@@ -190,14 +190,14 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       return res.status(401).json({ error: 'invalid credentials' });
     }
 
-    const merchant = store.getMerchantByAddress(address);
+    const merchant = await store.getMerchantByAddress(address);
     if (!merchant || !merchant.active) {
       return res.status(401).json({ error: 'invalid credentials' });
     }
 
     const now = Date.now();
     const token = randomBytes(32).toString('hex');
-    store.createSession({
+    await store.createSession({
       token,
       merchantId: merchant.merchantId,
       address: merchant.address,
@@ -211,30 +211,30 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     );
     logger.info({ merchantId: merchant.merchantId, address }, 'merchant logged in');
     res.json({ token, expiresAt: now + SESSION_TTL_MS, merchant: publicMerchant(merchant) });
-  });
+  }));
 
   // Session-protected self-service routes. requireSession is applied per-route (NOT as a blanket
   // router middleware) so requests to the admin routes below still reach their own auth check.
   const auth = requireSession(store);
 
-  app.post('/v1/auth/logout', auth, (req, res) => {
+  app.post('/v1/auth/logout', auth, asyncHandler(async (req, res) => {
     const token = bearerToken(req) || cookieToken(req);
-    if (token) store.deleteSession(token);
+    if (token) await store.deleteSession(token);
     // Clear the browser cookie regardless of whether a bearer was used.
     res.setHeader('Set-Cookie', sessionCookie('qmsession', '', 0, COOKIE_SECURE, COOKIE_SAME_SITE));
     res.sendStatus(204);
-  });
+  }));
 
-  app.get('/v1/me', auth, (req, res) => {
+  app.get('/v1/me', auth, asyncHandler(async (req, res) => {
     const session = res.locals.session as Session;
-    const merchant = store.getMerchantById(session.merchantId);
+    const merchant = await store.getMerchantById(session.merchantId);
     if (!merchant) return res.status(404).json({ error: 'merchant not found' });
     res.json(publicMerchant(merchant));
-  });
+  }));
 
-  app.patch('/v1/me', auth, (req, res) => {
+  app.patch('/v1/me', auth, asyncHandler(async (req, res) => {
     const session = res.locals.session as Session;
-    const merchant = store.getMerchantById(session.merchantId);
+    const merchant = await store.getMerchantById(session.merchantId);
     if (!merchant) return res.status(404).json({ error: 'merchant not found' });
 
     const parsed = PatchMerchantSchema.safeParse(req.body);
@@ -256,19 +256,18 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       name: name ?? merchant.name,
       webhookUrl: webhookUrl ?? merchant.webhookUrl,
     };
-    store.upsertMerchant(updated);
+await store.upsertMerchant(updated);
     logger.info({ merchantId: updated.merchantId }, 'merchant profile updated');
     res.json(publicMerchant(updated));
-  });
+  }));
 
-  app.get('/v1/me/deliveries', auth, (_req, res) => {
+  app.get('/v1/me/deliveries', auth, asyncHandler(async (_req, res) => {
     const session = res.locals.session as Session;
+    const deliveries = await store.listDeliveries(100);
     res.json({
-      deliveries: store
-        .listDeliveries(100)
-        .filter((d) => d.merchantId === session.merchantId),
+      deliveries: deliveries.filter((d) => d.merchantId === session.merchantId),
     });
-  });
+  }));
 
   // --- payment links (short URLs + multi-pay order pool) ---
 
@@ -284,9 +283,9 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     orderPool: z.array(z.string().regex(/^0x[0-9a-fA-F]{64}$/)).default([]),
   });
 
-  app.post('/v1/links', auth, (req, res) => {
+  app.post('/v1/links', auth, asyncHandler(async (req, res) => {
     const session = res.locals.session as Session;
-    const merchant = store.getMerchantById(session.merchantId);
+    const merchant = await store.getMerchantById(session.merchantId);
     if (!merchant) return res.status(404).json({ error: 'merchant not found' });
 
     const parsed = CreateLinkSchema.safeParse(req.body);
@@ -320,18 +319,18 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       orderPool: d.orderPool,
       createdAt: Date.now(),
     };
-    store.upsertLink(link);
+    await store.upsertLink(link);
     logger.info({ slug, merchantId: merchant.merchantId, multiPay: d.multiPay, poolSize: d.orderPool.length }, 'payment link created');
     res.status(201).json(publicLink(link));
-  });
+  }));
 
-  app.get('/v1/links', auth, (req, res) => {
+  app.get('/v1/links', auth, asyncHandler(async (req, res) => {
     const session = res.locals.session as Session;
-    const merchant = store.getMerchantById(session.merchantId);
+    const merchant = await store.getMerchantById(session.merchantId);
     if (!merchant) return res.status(404).json({ error: 'merchant not found' });
-    const links = store.listLinksForMerchant(merchant.address).map(publicLink);
+    const links = (await store.listLinksForMerchant(merchant.address)).map(publicLink);
     res.json({ links });
-  });
+  }));
 
   // Public — the checkout page (including mobile browsers) needs this without auth.
   const linkLimiter = rateLimit({
@@ -339,12 +338,12 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     max: cfg.PUBLIC_RATE_LIMIT_MAX ?? 60,
   });
 
-  app.get('/v1/links/:slug', linkLimiter, (req, res) => {
+  app.get('/v1/links/:slug', linkLimiter, asyncHandler(async (req, res) => {
     const slug = req.params.slug ?? '';
-    const link = store.getLink(slug);
+    const link = await store.getLink(slug);
     if (!link) return res.status(404).json({ error: 'link not found' });
     res.json(publicLink(link));
-  });
+  }));
 
   const ClaimSchema = z.object({
     payerAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'payerAddress must be a 20-byte hex address'),
@@ -352,9 +351,9 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
 
   const DOUBLE_PAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
-  app.post('/v1/links/:slug/claim', linkLimiter, (req, res) => {
+  app.post('/v1/links/:slug/claim', linkLimiter, asyncHandler(async (req, res) => {
     const slug = req.params.slug ?? '';
-    const link = store.getLink(slug);
+    const link = await store.getLink(slug);
     if (!link) return res.status(404).json({ error: 'link not found' });
 
     const parsed = ClaimSchema.safeParse(req.body);
@@ -369,7 +368,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     }
 
     // 5-min double-pay guard: same wallet cannot claim again until previous claim expires.
-    const latest = store.getLatestClaim(slug, payerAddress);
+    const latest = await store.getLatestClaim(slug, payerAddress);
     if (latest && !latest.settled) {
       const elapsed = Date.now() - latest.claimedAt;
       if (elapsed < DOUBLE_PAY_WINDOW_MS) {
@@ -383,7 +382,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       }
     }
 
-    const orderId = store.claimOrderFromPool(slug, payerAddress);
+    const orderId = await store.claimOrderFromPool(slug, payerAddress);
     if (!orderId) {
       return res.status(503).json({ error: 'no orders available — pool exhausted; ask the merchant to add more' });
     }
@@ -395,15 +394,15 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       amount: link.amount,
       poolRemaining: link.orderPool.length,
     });
-  });
+  }));
 
   // --- admin ---
   const admin = express.Router();
   admin.use(requireAdmin(cfg));
 
-  admin.get('/merchants', (_req, res) => {
-    res.json({ merchants: store.listMerchants().map(publicMerchant) });
-  });
+  admin.get('/merchants', asyncHandler(async (_req, res) => {
+    res.json({ merchants: (await store.listMerchants()).map(publicMerchant) });
+  }));
 
   const OnboardSchema = z.object({
     address: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 20-byte hex address'),
@@ -411,7 +410,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     webhookUrl: z.string().url(),
   });
 
-  admin.post('/merchants', (req, res) => {
+  admin.post('/merchants', asyncHandler(async (req, res) => {
     const parsed = OnboardSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
@@ -431,7 +430,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       // a server fault (must not bubble into the 500 handler).
       return res.status(400).json({ error: 'address fails checksum validation' });
     }
-    const existing = store.getMerchantByAddress(address);
+    const existing = await store.getMerchantByAddress(address);
     if (existing) {
       // Onboarding must not silently rotate the merchant's webhook secret — that would break its
       // signature verification with no warning. Profile updates go through PATCH.
@@ -446,14 +445,14 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       active: true,
       createdAt: Date.now(),
     };
-    store.upsertMerchant(merchant);
+    await store.upsertMerchant(merchant);
     // Payments that arrived before this address was registered were recorded as `skipped`, not
     // lost — re-queue them now so the merchant catches up on anything it missed.
-    const requeued = store.requeueSkippedForMerchant(merchant);
+    const requeued = await store.requeueSkippedForMerchant(merchant);
     logger.info({ merchantId: merchant.merchantId, address, requeued }, 'merchant onboarded');
     // The secret is returned exactly once — the merchant must store it to verify signatures.
     res.status(201).json({ ...publicMerchant(merchant), webhookSecret: merchant.webhookSecret });
-  });
+  }));
 
   const PatchMerchantSchema = z
     .object({
@@ -465,14 +464,14 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       message: 'at least one of name, webhookUrl or active is required',
     });
 
-  admin.patch('/merchants/:address', (req, res) => {
+  admin.patch('/merchants/:address', asyncHandler(async (req, res) => {
     let address: string;
     try {
       address = getAddress(req.params.address ?? '');
     } catch {
       return res.status(400).json({ error: 'invalid merchant address' });
     }
-    const existing = store.getMerchantByAddress(address);
+    const existing = await store.getMerchantByAddress(address);
     if (!existing) return res.status(404).json({ error: 'merchant not found' });
 
     const parsed = PatchMerchantSchema.safeParse(req.body);
@@ -497,18 +496,18 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       webhookUrl: webhookUrl ?? existing.webhookUrl,
       active: active ?? existing.active,
     };
-    store.upsertMerchant(updated);
+await store.upsertMerchant(updated);
     logger.info({ merchantId: updated.merchantId, address, active: updated.active }, 'merchant updated');
     res.json(publicMerchant(updated));
-  });
+  }));
 
-  admin.get('/deliveries', (_req, res) => {
-    res.json({ deliveries: store.listDeliveries(100) });
-  });
+  admin.get('/deliveries', asyncHandler(async (_req, res) => {
+    res.json({ deliveries: await store.listDeliveries(100) });
+  }));
 
-  admin.post('/deliveries/:id/retry', (req, res) => {
+  admin.post('/deliveries/:id/retry', asyncHandler(async (req, res) => {
     const id = req.params.id ?? '';
-    const d = store.getDelivery(id);
+    const d = await store.getDelivery(id);
     if (!d) return res.status(404).json({ error: 'delivery not found' });
     if (d.status === 'delivered') {
       return res.status(409).json({ error: 'delivery already delivered' });
@@ -519,7 +518,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       return res.status(409).json({ error: 'delivery was skipped (merchant not registered) — onboard the payout address to re-queue it' });
     }
     const nowMs = Date.now();
-    store.updateDelivery({
+    await store.updateDelivery({
       ...d,
       status: 'pending',
       attempts: 0,
@@ -529,7 +528,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     });
     logger.info({ id, previous: d.status }, 'delivery re-queued for retry');
     res.json({ id, previously: d.status, status: 'pending', attempts: 0 });
-  });
+  }));
 
   app.use('/v1', admin);
 
@@ -633,12 +632,16 @@ function requireSession(store: Store) {
     // would short-circuit to '' and never read the HttpOnly cookie, breaking cookie-only clients.
     const token = bearerToken(req) || cookieToken(req) || '';
     // getSession lazily expires tokens on access, so a stale token fails here naturally.
-    const session = token ? store.getSession(token) : undefined;
-    if (!session) {
-      return res.status(401).json({ error: 'unauthorized — log in again' });
-    }
-    res.locals.session = session;
-    next();
+    void store
+      .getSession(token)
+      .then((session) => {
+        if (!session) {
+          return res.status(401).json({ error: 'unauthorized — log in again' });
+        }
+        res.locals.session = session;
+        next();
+      })
+      .catch(next);
   };
 }
 

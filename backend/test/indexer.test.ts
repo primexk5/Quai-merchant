@@ -86,41 +86,41 @@ describe('Indexer', () => {
     const indexer = withPrivates(new Indexer(client, store, { ...cfg, START_BLOCK: 500 }, () => 0));
     await indexer.initCursor();
     expect(client.getBlockNumber).not.toHaveBeenCalled();
-    expect(store.getCursor(SCOPE)).toBe(499);
+    expect(await store.getCursor(SCOPE)).toBe(499);
   });
 
   it('without START_BLOCK seeds from head - CONFIRMATIONS', async () => {
     const store = freshStore();
     const indexer = withPrivates(new Indexer(fakeClient({ head: 1000 }), store, cfg, () => 0));
     await indexer.initCursor();
-    expect(store.getCursor(SCOPE)).toBe(988);
+    expect(await store.getCursor(SCOPE)).toBe(988);
   });
 
   it('leaves an existing cursor untouched (store survives restarts)', async () => {
     const store = freshStore();
-    store.setCursor(SCOPE, 12345);
+    await store.setCursor(SCOPE, 12345);
     const indexer = withPrivates(new Indexer(fakeClient(), store, cfg, () => 0));
     await indexer.initCursor();
-    expect(store.getCursor(SCOPE)).toBe(12345);
+    expect(await store.getCursor(SCOPE)).toBe(12345);
   });
 
   it('treats a store file reused from another deployment as empty (no silently skipped events)', async () => {
     const store = freshStore();
-    store.setCursor(cursorScope(9, '0x00000000000000000000000000000000000000FF'), 12345);
+    await store.setCursor(cursorScope(9, '0x00000000000000000000000000000000000000FF'), 12345);
     const indexer = withPrivates(new Indexer(fakeClient({ head: 1000 }), store, cfg, () => 0));
     await indexer.initCursor();
-    expect(store.getCursor(SCOPE)).toBe(988); // fresh scope starts from head
-    expect(store.getCursor(cursorScope(9, '0x00000000000000000000000000000000000000FF'))).toBe(12345);
+    expect(await store.getCursor(SCOPE)).toBe(988); // fresh scope starts from head
+    expect(await store.getCursor(cursorScope(9, '0x00000000000000000000000000000000000000FF'))).toBe(12345);
   });
 
   it('does not advance past the finality boundary (head - CONFIRMATIONS)', async () => {
     const store = freshStore();
-    store.setCursor(SCOPE, 90);
+    await store.setCursor(SCOPE, 90);
     const client = fakeClient({ head: 100, events: [event(99)] }); // head - 12 = 88 < cursor
     const indexer = withPrivates(new Indexer(client, store, cfg, () => 0));
     await indexer.tick();
     expect(client.getPaymentEvents).not.toHaveBeenCalled();
-    expect(store.getCursor(SCOPE)).toBe(90);
+    expect(await store.getCursor(SCOPE)).toBe(90);
   });
 
   it('advances the cursor in MAX_BLOCK_RANGE chunks while catching up', async () => {
@@ -129,14 +129,14 @@ describe('Indexer', () => {
     const indexer = withPrivates(new Indexer(client, store, { ...cfg, MAX_BLOCK_RANGE: 50, CONFIRMATIONS: 0 }, () => 0));
     await indexer.tick();
     expect(client.getPaymentEvents).toHaveBeenCalledWith(1, 50);
-    expect(store.getCursor(SCOPE)).toBe(50); // paused mid-catch-up: resumes next tick
+    expect(await store.getCursor(SCOPE)).toBe(50); // paused mid-catch-up: resumes next tick
     await indexer.tick();
     expect(client.getPaymentEvents).toHaveBeenCalledWith(51, 100);
   });
 
   it('queues exactly one webhook delivery for a confirmed payment (idempotent)', async () => {
     const store = freshStore();
-    store.upsertMerchant({
+    await store.upsertMerchant({
       merchantId: 'mch_1',
       address: ADDR,
       name: 'Acme',
@@ -148,8 +148,8 @@ describe('Indexer', () => {
     const client = fakeClient({ events: [event(5)] });
     const indexer = withPrivates(new Indexer(client, store, cfg, () => 1_700_000_000_000));
     await indexer.processEvent(event(5));
-    expect(store.listDeliveries(10)).toHaveLength(1);
-    const d = store.getDelivery('0x' + 'ab'.repeat(32) + ':0')!;
+    expect(await store.listDeliveries(10)).toHaveLength(1);
+    const d = (await store.getDelivery('0x' + 'ab'.repeat(32) + ':0'))!;
     expect(d.status).toBe('pending');
     expect(d.merchantId).toBe('mch_1');
     expect(d.payload.data.amount).toBe('25000000'); // gross
@@ -160,7 +160,7 @@ describe('Indexer', () => {
 
     // Re-processing the same block (post-restart replay) must not double-queue.
     await indexer.processEvent(event(5));
-    expect(store.listDeliveries(10)).toHaveLength(1);
+    expect(await store.listDeliveries(10)).toHaveLength(1);
   });
 
   it('drops events that are not settled on-chain (reorg guard #2)', async () => {
@@ -168,7 +168,7 @@ describe('Indexer', () => {
     const client = fakeClient({ events: [event(5)], settled: false });
     const indexer = withPrivates(new Indexer(client, store, cfg, () => 0));
     await indexer.processEvent(event(5));
-    expect(store.listDeliveries(10)).toHaveLength(0);
+    expect(await store.listDeliveries(10)).toHaveLength(0);
     expect(client.getOrder).toHaveBeenCalledTimes(1);
   });
 
@@ -176,7 +176,7 @@ describe('Indexer', () => {
     const store = freshStore();
     const indexer = withPrivates(new Indexer(fakeClient({ events: [event(5)] }), store, cfg, () => 0));
     await indexer.processEvent(event(5));
-    const d = store.getDelivery('0x' + 'ab'.repeat(32) + ':0')!;
+    const d = (await store.getDelivery('0x' + 'ab'.repeat(32) + ':0'))!;
     expect(d.status).toBe('skipped');
     expect(d.merchantId).toBe('unregistered:' + ADDR);
     expect(d.url).toBe('');

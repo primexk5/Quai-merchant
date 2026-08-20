@@ -74,7 +74,7 @@ async function req(base: string, path: string, init?: RequestInit): Promise<{ st
 const auth = (key: string) => ({ authorization: `Bearer ${key}` });
 const jsonHeaders = { 'content-type': 'application/json' };
 
-function seedDelivery(store: JsonStore, over: Partial<WebhookDelivery> = {}): WebhookDelivery {
+async function seedDelivery(store: JsonStore, over: Partial<WebhookDelivery> = {}): Promise<WebhookDelivery> {
   const d: WebhookDelivery = {
     id: '0x' + 'ab'.repeat(32) + ':0',
     merchantId: 'mch_1',
@@ -107,7 +107,7 @@ function seedDelivery(store: JsonStore, over: Partial<WebhookDelivery> = {}): We
     updatedAt: 1,
     ...over,
   };
-  store.insertDeliveryIfAbsent(d);
+  await store.insertDeliveryIfAbsent(d);
   return d;
 }
 
@@ -122,7 +122,7 @@ describe('API', () => {
   describe('GET /health', () => {
     it('reports liveness, contract and cursor without auth', async () => {
       const { base, store } = await startApp();
-      store.setCursor('9:' + CONTRACT, 42);
+      await store.setCursor('9:' + CONTRACT, 42);
       const { status, body } = await req(base, '/health');
       expect(status).toBe(200);
       expect(body.status).toBe('ok');
@@ -149,7 +149,7 @@ describe('API', () => {
       const { base, store } = await startApp(
         fakeClient(vi.fn(async () => onChainOrder({ settled: true, settledAt: 1000n }))),
       );
-      seedDelivery(store, { status: 'delivered', attempts: 2 });
+      await seedDelivery(store, { status: 'delivered', attempts: 2 });
       const { status, body } = await req(base, `/v1/orders/${MERCHANT_ADDR}/${ORDER_ID}`);
       expect(status).toBe(200);
       expect(body.settled).toBe(true);
@@ -197,7 +197,7 @@ describe('API', () => {
       expect(status).toBe(201);
       expect(body.webhookSecret).toMatch(/^whsec_/);
 
-      const stored = store.getMerchantByAddress(MERCHANT_ADDR)!;
+      const stored = (await store.getMerchantByAddress(MERCHANT_ADDR))!;
       expect(stored.webhookSecret).toBe(body.webhookSecret);
       // The secret never leaks through list/read endpoints.
       const { body: listed } = await req(base, '/v1/merchants', { headers: auth(ADMIN_KEY) });
@@ -217,8 +217,8 @@ describe('API', () => {
         body: JSON.stringify(merchantBody({ name: 'Renamed' })),
       });
       expect(second.status).toBe(409);
-      expect(store.getMerchantByAddress(MERCHANT_ADDR)!.webhookSecret).toBe(first.body.webhookSecret);
-      expect(store.getMerchantByAddress(MERCHANT_ADDR)!.name).toBe('Acme');
+      expect((await store.getMerchantByAddress(MERCHANT_ADDR))!.webhookSecret).toBe(first.body.webhookSecret);
+      expect((await store.getMerchantByAddress(MERCHANT_ADDR))!.name).toBe('Acme');
     });
 
     it('validates the body and checksum', async () => {
@@ -260,7 +260,7 @@ describe('API', () => {
         headers: { ...auth(ADMIN_KEY), ...jsonHeaders },
         body: JSON.stringify(merchantBody()),
       });
-      const secretBefore = store.getMerchantByAddress(MERCHANT_ADDR)!.webhookSecret;
+      const secretBefore = (await store.getMerchantByAddress(MERCHANT_ADDR))!.webhookSecret;
 
       const { status, body } = await req(base, `/v1/merchants/${MERCHANT_ADDR}`, {
         method: 'PATCH',
@@ -270,7 +270,7 @@ describe('API', () => {
       expect(status).toBe(200);
       expect(body.name).toBe('Acme 2');
       expect(body.active).toBe(false);
-      expect(store.getMerchantByAddress(MERCHANT_ADDR)!.webhookSecret).toBe(secretBefore);
+      expect((await store.getMerchantByAddress(MERCHANT_ADDR))!.webhookSecret).toBe(secretBefore);
     });
 
     it('404s for an unknown address and rejects an empty body', async () => {
@@ -296,7 +296,7 @@ describe('API', () => {
 
     it('re-queues a failed delivery', async () => {
       const { base, store } = await startApp();
-      seedDelivery(store, { status: 'failed', attempts: 5, lastError: 'HTTP 500' });
+      await seedDelivery(store, { status: 'failed', attempts: 5, lastError: 'HTTP 500' });
       const { status, body } = await req(base, `/v1/deliveries/${'0x' + 'ab'.repeat(32) + ':0'}/retry`, {
         method: 'POST',
         headers: auth(ADMIN_KEY),
@@ -304,14 +304,14 @@ describe('API', () => {
       expect(status).toBe(200);
       expect(body.status).toBe('pending');
       expect(body.attempts).toBe(0);
-      const d = store.getDelivery('0x' + 'ab'.repeat(32) + ':0')!;
+      const d = (await store.getDelivery('0x' + 'ab'.repeat(32) + ':0'))!;
       expect(d.status).toBe('pending');
       expect(d.attempts).toBe(0);
     });
 
     it('refuses to retry delivered and skipped deliveries', async () => {
       const { base, store } = await startApp();
-      seedDelivery(store, { status: 'delivered' });
+      await seedDelivery(store, { status: 'delivered' });
       expect(
         (await req(base, `/v1/deliveries/${'0x' + 'ab'.repeat(32) + ':0'}/retry`, {
           method: 'POST',
@@ -319,17 +319,17 @@ describe('API', () => {
         })).status,
       ).toBe(409);
 
-      seedDelivery(store, {
+      await seedDelivery(store, {
         id: '0x' + 'cd'.repeat(32) + ':0',
         merchantId: 'unregistered:' + MERCHANT_ADDR,
         url: '',
         status: 'skipped',
         lastError: 'no merchant registered for payout address',
         payload: {
-          ...store.getDelivery('0x' + 'ab'.repeat(32) + ':0')!.payload,
+          ...(await store.getDelivery('0x' + 'ab'.repeat(32) + ':0'))!.payload,
           id: '0x' + 'cd'.repeat(32) + ':0',
           data: {
-            ...store.getDelivery('0x' + 'ab'.repeat(32) + ':0')!.payload.data,
+            ...(await store.getDelivery('0x' + 'ab'.repeat(32) + ':0'))!.payload.data,
             merchant: MERCHANT_ADDR,
           },
         },
@@ -340,7 +340,7 @@ describe('API', () => {
       });
       expect(skipped.status).toBe(409);
       // Skipped deliveries are still queued for re-delivery once the address is onboarded.
-      expect(store.getDelivery('0x' + 'cd'.repeat(32) + ':0')!.status).toBe('skipped');
+      expect((await store.getDelivery('0x' + 'cd'.repeat(32) + ':0'))!.status).toBe('skipped');
     });
 
     it('404s for an unknown delivery id', async () => {

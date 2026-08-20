@@ -3,6 +3,8 @@ import type { Server } from 'node:http';
 import { loadConfig } from './config.js';
 import { logger, log } from './logger.js';
 import { JsonStore } from './store/json.js';
+import { PostgresStore } from './store/postgres.js';
+import type { Store } from './store/index.js';
 import { QuaiClient } from './chain/client.js';
 import { Indexer } from './indexer/indexer.js';
 import { WebhookDispatcher } from './webhooks/dispatcher.js';
@@ -27,7 +29,15 @@ async function main(): Promise<void> {
     );
   }
 
-  const store = new JsonStore(cfg.DATABASE_PATH);
+  // Postgres (DATABASE_URL) when available — required for HA / multiple instances (Railway);
+  // otherwise fall back to the single-process JSON file store.
+  const store: Store = cfg.DATABASE_URL
+    ? (() => {
+        const pg = new PostgresStore(cfg.DATABASE_URL, { ssl: cfg.DATABASE_SSL });
+        boot.info('using PostgreSQL store');
+        return pg;
+      })()
+    : new JsonStore(cfg.DATABASE_PATH);
   const client = new QuaiClient(cfg);
   const dispatcher = new WebhookDispatcher(store, cfg);
   const indexer = new Indexer(client, store, cfg);
@@ -35,6 +45,7 @@ async function main(): Promise<void> {
   const app = createServer(store, client, cfg);
   const server: Server = app.listen(cfg.PORT, () => boot.info({ port: cfg.PORT }, 'HTTP API listening'));
 
+  if (store instanceof PostgresStore) await store.init();
   dispatcher.start();
   await indexer.start();
 
@@ -46,7 +57,7 @@ async function main(): Promise<void> {
     await indexer.stop();
     await dispatcher.stop();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    store.close();
+    await store.close();
     boot.info('shutdown complete');
     process.exit(0);
   };

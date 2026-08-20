@@ -54,7 +54,7 @@ export class WebhookDispatcher {
     if (this.running || this.stopped) return;
     this.running = true;
     try {
-      const due = this.store.getDueDeliveries(this.now(), 20);
+      const due = await this.store.getDueDeliveries(this.now(), 20);
       // Deliver the batch in parallel so a slow or hanging merchant endpoint (up to
       // WEBHOOK_TIMEOUT_MS each) can't stall deliveries to everyone else. Each delivery is
       // isolated — one unexpected failure cannot starve the rest of the queue.
@@ -78,10 +78,10 @@ export class WebhookDispatcher {
 
   /** Deliver one webhook once, updating its persisted state based on the outcome. */
   async attempt(d: WebhookDelivery): Promise<void> {
-    const merchant = this.store.getMerchantById(d.merchantId);
+    const merchant = await this.store.getMerchantById(d.merchantId);
     if (!merchant) {
       // Merchant record gone (deleted/moved off this store): nothing valid to deliver to.
-      this.commit(d, {
+      await this.commit(d, {
         status: 'failed',
         lastError: 'merchant no longer registered',
         updatedAt: this.now(),
@@ -94,7 +94,7 @@ export class WebhookDispatcher {
       // attempt spent, no tight retry loop — the sweep only re-picks it up once per re-check
       // interval), so it resumes automatically if the merchant is re-activated.
       const nextCheck = this.now() + DEACTIVATED_RECHECK_MS;
-      this.commit(d, { nextAttemptAt: nextCheck, updatedAt: this.now() });
+      await this.commit(d, { nextAttemptAt: nextCheck, updatedAt: this.now() });
       logger.warn(
         { id: d.id, merchantId: merchant.merchantId },
         'merchant deactivated — delivery held until next re-check',
@@ -125,19 +125,19 @@ export class WebhookDispatcher {
     const attempts = d.attempts + 1;
     const nowMs = this.now();
     if (result.ok) {
-      this.commit(d, { status: 'delivered', attempts, lastError: null, updatedAt: nowMs });
+      await this.commit(d, { status: 'delivered', attempts, lastError: null, updatedAt: nowMs });
       logger.info({ id: d.id, merchantId: d.merchantId, attempts }, 'webhook delivered');
       return;
     }
 
     if (attempts >= this.cfg.WEBHOOK_MAX_ATTEMPTS) {
-      this.commit(d, { status: 'failed', attempts, lastError: result.error, updatedAt: nowMs });
+      await this.commit(d, { status: 'failed', attempts, lastError: result.error, updatedAt: nowMs });
       logger.error({ id: d.id, merchantId: d.merchantId, attempts, errText: result.error }, 'webhook permanently failed');
       return;
     }
 
     const delay = backoffMs(attempts, this.cfg.WEBHOOK_BASE_BACKOFF_MS, this.cfg.WEBHOOK_MAX_BACKOFF_MS);
-    this.commit(d, {
+    await this.commit(d, {
       status: 'pending',
       attempts,
       lastError: result.error,
@@ -152,7 +152,7 @@ export class WebhookDispatcher {
    * admin retry endpoint re-queueing it while this attempt was in flight). Without the CAS, a
    * stale in-flight attempt could clobber the retry's reset with its own pre-retry snapshot.
    */
-  private commit(d: WebhookDelivery, patch: Partial<WebhookDelivery>): void {
+  private async commit(d: WebhookDelivery, patch: Partial<WebhookDelivery>): Promise<void> {
     const updated: WebhookDelivery = { ...d, ...patch };
     // Guard identity = the snapshot this attempt started from. Anything that touched the record
     // while the attempt was in flight (admin retry, requeue, another sweep) breaks the CAS.
@@ -162,7 +162,7 @@ export class WebhookDispatcher {
       nextAttemptAt: d.nextAttemptAt,
       updatedAt: d.updatedAt,
     };
-    if (!this.store.updateDeliveryIfCurrent(updated, guard)) {
+    if (!(await this.store.updateDeliveryIfCurrent(updated, guard))) {
       logger.warn(
         { id: d.id },
         'delivery state changed during the attempt (e.g. admin retry) — discarding stale write',

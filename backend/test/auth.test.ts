@@ -93,7 +93,7 @@ async function onboardMerchant(base: string, address = merchantAddress): Promise
   expect(res.status).toBe(201);
 }
 
-function seedDelivery(store: JsonStore, merchantId: string, over: Partial<WebhookDelivery> = {}) {
+async function seedDelivery(store: JsonStore, merchantId: string, over: Partial<WebhookDelivery> = {}): Promise<WebhookDelivery> {
   const d: WebhookDelivery = {
     id: '0x' + 'cd'.repeat(32) + ':0',
     merchantId,
@@ -126,13 +126,13 @@ function seedDelivery(store: JsonStore, merchantId: string, over: Partial<Webhoo
     updatedAt: 1,
     ...over,
   };
-  store.insertDeliveryIfAbsent(d);
+  await store.insertDeliveryIfAbsent(d);
   return d;
 }
 
 /** A delivery for a different merchant, with distinct ids so it can't collide with the default. */
-function otherMerchantDelivery(store: JsonStore): WebhookDelivery {
-  return seedDelivery(store, 'mch_other', {
+async function otherMerchantDelivery(store: JsonStore): Promise<WebhookDelivery> {
+  return await seedDelivery(store, 'mch_other', {
     id: '0x' + 'ef'.repeat(32) + ':0',
     payload: {
       id: '0x' + 'ef'.repeat(32) + ':0',
@@ -337,7 +337,7 @@ describe('session-protected routes', () => {
 
   it('PATCH /v1/me updates name and webhookUrl without rotating the secret', async () => {
     const before = await req(base, '/v1/me', { headers: auth(token) });
-    const secretBefore = store.getMerchantById((before.body.merchantId as string) ?? '')?.webhookSecret;
+    const secretBefore = (await store.getMerchantById((before.body.merchantId as string) ?? ''))?.webhookSecret;
 
     const res = await req(base, '/v1/me', {
       method: 'PATCH',
@@ -347,14 +347,14 @@ describe('session-protected routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ name: 'Acme 2', webhookUrl: 'https://hooks.example.test/v2' });
 
-    const merchant = store.getMerchantByAddress(merchantAddress);
+    const merchant = await store.getMerchantByAddress(merchantAddress);
     expect(merchant?.webhookSecret).toBe(secretBefore);
   });
 
   it('GET /v1/me/deliveries returns only deliveries for this merchant', async () => {
-    const merchantId = store.getMerchantByAddress(merchantAddress)!.merchantId;
-    seedDelivery(store, merchantId);
-    otherMerchantDelivery(store);
+    const merchantId = (await store.getMerchantByAddress(merchantAddress))!.merchantId;
+    await seedDelivery(store, merchantId);
+    await otherMerchantDelivery(store);
 
     const res = await req(base, '/v1/me/deliveries', { headers: auth(token) });
     expect(res.status).toBe(200);

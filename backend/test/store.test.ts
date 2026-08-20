@@ -60,60 +60,60 @@ const delivery = (id: string): WebhookDelivery => ({
 });
 
 describe('JsonStore', () => {
-  it('persists and reads back the cursor', () => {
+  it('persists and reads back the cursor', async () => {
     const s = freshStore();
-    expect(s.getCursor('scope')).toBeUndefined();
+    expect(await s.getCursor('scope')).toBeUndefined();
     s.setCursor('scope', 1234);
-    expect(s.getCursor('scope')).toBe(1234);
+    expect(await s.getCursor('scope')).toBe(1234);
   });
 
-  it('keeps cursors scoped independently (chain/contract isolation)', () => {
+  it('keeps cursors scoped independently (chain/contract isolation)', async () => {
     const s = freshStore();
     s.setCursor('1:0xabc', 100);
     s.setCursor('1:0xabc2', 999); // same chain, different contract
     s.setCursor('2:0xabc', 200); // same contract, different chain
-    expect(s.getCursor('1:0xabc')).toBe(100);
-    expect(s.getCursor('1:0xabc2')).toBe(999);
-    expect(s.getCursor('2:0xabc')).toBe(200);
+    expect(await s.getCursor('1:0xabc')).toBe(100);
+    expect(await s.getCursor('1:0xabc2')).toBe(999);
+    expect(await s.getCursor('2:0xabc')).toBe(200);
   });
 
-  it('migrates a legacy un-scoped cursor file and ignores it for fresh scopes', () => {
+  it('migrates a legacy un-scoped cursor file and ignores it for fresh scopes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pwq-store-'));
     dirs.push(dir);
     const path = join(dir, 'relayer.db');
     writeFileSync(path, JSON.stringify({ cursor: 77, merchants: {}, deliveries: {} }));
     const s = new JsonStore(path);
-    expect(s.getCursor('legacy')).toBe(77); // preserved, but...
-    expect(s.getCursor('9:0x00a1')).toBeUndefined(); // ...the current scope starts fresh
+    expect(await s.getCursor('legacy')).toBe(77); // preserved, but...
+    expect(await s.getCursor('9:0x00a1')).toBeUndefined(); // ...the current scope starts fresh
   });
 
-  it('looks up merchants by address (case-insensitive) and by id', () => {
+  it('looks up merchants by address (case-insensitive) and by id', async () => {
     const s = freshStore();
     s.upsertMerchant(merchant());
-    expect(s.getMerchantByAddress('0x00000000000000000000000000000000000000A1')?.merchantId).toBe('mch_1');
-    expect(s.getMerchantById('mch_1')?.name).toBe('Acme');
+    expect((await s.getMerchantByAddress('0x00000000000000000000000000000000000000A1'))?.merchantId).toBe('mch_1');
+    expect((await s.getMerchantById('mch_1'))?.name).toBe('Acme');
   });
 
-  it('inserts a delivery once and refuses duplicates (idempotency)', () => {
+  it('inserts a delivery once and refuses duplicates (idempotency)', async () => {
     const s = freshStore();
     const d = delivery('0xabc:0');
-    expect(s.insertDeliveryIfAbsent(d)).toBe(true);
-    expect(s.insertDeliveryIfAbsent(d)).toBe(false);
-    expect(s.listDeliveries(10)).toHaveLength(1);
+    expect(await s.insertDeliveryIfAbsent(d)).toBe(true);
+    expect(await s.insertDeliveryIfAbsent(d)).toBe(false);
+    expect(await s.listDeliveries(10)).toHaveLength(1);
   });
 
-  it('looks up a delivery by (merchant, orderId) case-insensitively', () => {
+  it('looks up a delivery by (merchant, orderId) case-insensitively', async () => {
     const s = freshStore();
     s.insertDeliveryIfAbsent(delivery('0xabc:0'));
-    const found = s.getDeliveryByOrder(
+    const found = await s.getDeliveryByOrder(
       '0x00000000000000000000000000000000000000a1', // lowercase merchant
       '0X' + '11'.repeat(32), // uppercase orderId
     );
     expect(found?.id).toBe('0xabc:0');
-    expect(s.getDeliveryByOrder('0x00000000000000000000000000000000000000a1', '0x' + '22'.repeat(32))).toBeUndefined();
+    expect(await s.getDeliveryByOrder('0x00000000000000000000000000000000000000a1', '0x' + '22'.repeat(32))).toBeUndefined();
   });
 
-  it('re-queues skipped deliveries when the merchant is onboarded', () => {
+  it('re-queues skipped deliveries when the merchant is onboarded', async () => {
     const s = freshStore();
     const d = delivery('0xabc:0');
     const placeholder = 'unregistered:0x00000000000000000000000000000000000000a1';
@@ -140,67 +140,67 @@ describe('JsonStore', () => {
       },
     });
 
-    const count = s.requeueSkippedForMerchant(merchant());
+    const count = await s.requeueSkippedForMerchant(merchant());
     expect(count).toBe(1);
-    const requeued = s.getDelivery('0xabc:0')!;
+    const requeued = (await s.getDelivery('0xabc:0'))!;
     expect(requeued.status).toBe('pending');
     expect(requeued.merchantId).toBe('mch_1');
     expect(requeued.payload.data.merchantId).toBe('mch_1'); // nested id rebuilt, not left stale
     expect(requeued.url).toBe('https://example.test/webhook');
     expect(requeued.lastError).toBeNull();
-    expect(s.getDelivery('0xdef:1')!.status).toBe('skipped');
+    expect((await s.getDelivery('0xdef:1'))!.status).toBe('skipped');
   });
 
-  it('returns only due, pending deliveries', () => {
+  it('returns only due, pending deliveries', async () => {
     const s = freshStore();
     s.insertDeliveryIfAbsent({ ...delivery('a'), nextAttemptAt: 100 });
     s.insertDeliveryIfAbsent({ ...delivery('b'), nextAttemptAt: 5000 });
     s.insertDeliveryIfAbsent({ ...delivery('c'), status: 'delivered', nextAttemptAt: 0 });
-    const due = s.getDueDeliveries(1000, 10);
+    const due = await s.getDueDeliveries(1000, 10);
     expect(due.map((d) => d.id)).toEqual(['a']);
   });
 
-  it('stores nonces single-use: consumed once, then gone (login replay protection)', () => {
+  it('stores nonces single-use: consumed once, then gone (login replay protection)', async () => {
     const s = freshStore();
     s.createNonce('nonce-1', '0xabc', Date.now() + 60_000);
-    expect(s.consumeNonce('nonce-1')).toBe('0xabc');
-    expect(s.consumeNonce('nonce-1')).toBeUndefined(); // second use refused
+    expect(await s.consumeNonce('nonce-1')).toBe('0xabc');
+    expect(await s.consumeNonce('nonce-1')).toBeUndefined(); // second use refused
   });
 
-  it('refuses to consume an expired nonce (swept from storage)', () => {
+  it('refuses to consume an expired nonce (swept from storage)', async () => {
     const s = freshStore();
     s.createNonce('nonce-1', '0xabc', Date.now() - 1000);
-    expect(s.consumeNonce('nonce-1')).toBeUndefined();
-    expect(s.consumeNonce('nonce-1')).toBeUndefined();
+    expect(await s.consumeNonce('nonce-1')).toBeUndefined();
+    expect(await s.consumeNonce('nonce-1')).toBeUndefined();
   });
 
-  it('CAS delivery write applies only when the record still matches the snapshot', () => {
+  it('CAS delivery write applies only when the record still matches the snapshot', async () => {
     const s = freshStore();
     s.insertDeliveryIfAbsent(delivery('0xabc:0'));
-    const snapshot = s.getDelivery('0xabc:0')!;
+    const snapshot = (await s.getDelivery('0xabc:0'))!;
 
     // No concurrent mutation: the guarded write lands.
-    const applied = s.updateDeliveryIfCurrent(
+    const applied = await s.updateDeliveryIfCurrent(
       { ...snapshot, status: 'delivered', attempts: 1, updatedAt: 2 },
       { attempts: snapshot.attempts, status: snapshot.status, nextAttemptAt: snapshot.nextAttemptAt, updatedAt: snapshot.updatedAt },
     );
     expect(applied).toBe(true);
-    expect(s.getDelivery('0xabc:0')!.status).toBe('delivered');
+    expect((await s.getDelivery('0xabc:0'))!.status).toBe('delivered');
 
     // Now simulate a concurrent retry: the record changed (updatedAt bumped, attempts reset) while
     // a stale in-flight attempt still holds its old snapshot — the guarded write must be refused.
-    s.updateDelivery({ ...s.getDelivery('0xabc:0')!, attempts: 0, status: 'pending', updatedAt: 99 });
-    const stale = s.getDelivery('0xabc:0')!;
-    const rejected = s.updateDeliveryIfCurrent(
+    await s.updateDelivery({ ...(await s.getDelivery('0xabc:0'))!, attempts: 0, status: 'pending', updatedAt: 99 });
+    const stale = (await s.getDelivery('0xabc:0'))!;
+    const rejected = await s.updateDeliveryIfCurrent(
       { ...stale, status: 'delivered', attempts: 1, updatedAt: 100 },
       { attempts: snapshot.attempts, status: snapshot.status, nextAttemptAt: snapshot.nextAttemptAt, updatedAt: snapshot.updatedAt },
     );
     expect(rejected).toBe(false);
-    expect(s.getDelivery('0xabc:0')!.status).toBe('pending');
-    expect(s.getDelivery('0xabc:0')!.attempts).toBe(0);
+    expect((await s.getDelivery('0xabc:0'))!.status).toBe('pending');
+    expect((await s.getDelivery('0xabc:0'))!.attempts).toBe(0);
   });
 
-  it('writes the store owner-only (0600) in a dir with no group/other access', () => {
+  it('writes the store owner-only (0600) in a dir with no group/other access', async () => {
     if (process.platform === 'win32') return; // POSIX permission bits only
     const dir = mkdtempSync(join(tmpdir(), 'pwq-store-'));
     dirs.push(dir);
@@ -211,20 +211,20 @@ describe('JsonStore', () => {
     expect(statSync(dirname(path)).mode & 0o077).toBe(0); // dir: no group/other bits
   });
 
-  it('survives a reload from disk', () => {    const dir = mkdtempSync(join(tmpdir(), 'pwq-store-'));
+  it('survives a reload from disk', async () => {    const dir = mkdtempSync(join(tmpdir(), 'pwq-store-'));
     dirs.push(dir);
     const path = join(dir, 'relayer.db');
     const s1 = new JsonStore(path);
     s1.setCursor('9:0x00a1', 77);
     s1.upsertMerchant(merchant());
     s1.insertDeliveryIfAbsent(delivery('x:0'));
-    s1.close();
+    await s1.close();
 
     const s2 = new JsonStore(path);
-    expect(s2.getCursor('9:0x00a1')).toBe(77);
-    expect(s2.getMerchantById('mch_1')?.name).toBe('Acme');
-    expect(s2.getDelivery('x:0')?.status).toBe('pending');
+    expect(await s2.getCursor('9:0x00a1')).toBe(77);
+    expect((await s2.getMerchantById('mch_1'))?.name).toBe('Acme');
+    expect((await s2.getDelivery('x:0'))?.status).toBe('pending');
     // the (merchant, orderId) index is rebuilt from disk too
-    expect(s2.getDeliveryByOrder('0x00000000000000000000000000000000000000a1', '0x' + '11'.repeat(32))?.id).toBe('x:0');
+    expect((await s2.getDeliveryByOrder('0x00000000000000000000000000000000000000a1', '0x' + '11'.repeat(32)))?.id).toBe('x:0');
   });
 });

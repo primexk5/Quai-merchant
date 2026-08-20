@@ -29,7 +29,7 @@ Funds never rest in the contract — every payment is routed through and out in 
 | Directory | What it is |
 | --- | --- |
 | [`contracts/`](contracts/) | Hardhat project: `PayWithQuai` UUPS-upgradeable router, governance timelock, mocks and test suite. |
-| [`backend/`](backend/) | TypeScript relayer + API: indexer (poll `getLogs`, confirmations, settlement re-check), at-least-once webhook dispatcher with backoff, merchant API with wallet-signature sessions. |
+| [`backend/`](backend/) | TypeScript relayer + API: indexer (poll `getLogs`, confirmations, settlement re-check), at-least-once webhook dispatcher with backoff, merchant API with wallet-signature sessions. Persistence is a JSON file by default; set `DATABASE_URL` to use PostgreSQL (required on Railway / for multiple instances). |
 | [`frontend/`](frontend/) | Next.js app: landing page, merchant onboarding, login, dashboard (payments, analytics, settings), checkout demo, docs. |
 | [`docs/`](docs/) | Runbooks, integration guides, pitch deck and UI spec. |
 
@@ -58,6 +58,10 @@ npm test                  # vitest suite
 
 - `PAYWITHQUAI_ADDRESS` must be the proxy from `contracts/deployments/cyprus1.json`.
 - `ADMIN_API_KEY` is the bearer token for onboarding/demo admin routes — generate a long random value.
+- Storage: leave `DATABASE_URL` unset to use the dependency-free JSON file store (single process).
+  To use PostgreSQL, set `DATABASE_URL` (and `DATABASE_SSL=true` if your URL omits `sslmode`) —
+  the schema is created automatically on boot. Railway sets `DATABASE_URL` for you when a
+  Postgres service is attached; `railway.json` at the repo root configures the build/deploy.
 - Local testing against an `http://localhost` webhook receiver requires `WEBHOOK_ALLOW_INSECURE_URLS=true` (SSRF guard is on by default; production URLs must be HTTPS and resolve to public IPs).
 - A throwaway webhook receiver is included: `npm run webhook-receiver`.
 

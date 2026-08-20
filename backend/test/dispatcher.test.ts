@@ -91,8 +91,8 @@ function delivery(): WebhookDelivery {
 describe('WebhookDispatcher.attempt', () => {
   it('marks delivered on a 2xx and signs the request', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
-    store.insertDeliveryIfAbsent(delivery());
+    await store.upsertMerchant(merchant);
+    await store.insertDeliveryIfAbsent(delivery());
 
     const { post, calls } = mockPost(({ headers }) => {
       expect(typeof headers['x-paywithquai-signature']).toBe('string');
@@ -100,25 +100,25 @@ describe('WebhookDispatcher.attempt', () => {
     });
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.headers['x-paywithquai-signature']).toBeTruthy();
-    expect(store.getDelivery('0xabc:0')!.status).toBe('delivered');
-    expect(store.getDelivery('0xabc:0')!.attempts).toBe(1);
+    expect((await store.getDelivery('0xabc:0'))!.status).toBe('delivered');
+    expect((await store.getDelivery('0xabc:0'))!.attempts).toBe(1);
   });
 
   it('keeps pending and schedules a retry on a 5xx', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
-    store.insertDeliveryIfAbsent(delivery());
+    await store.upsertMerchant(merchant);
+    await store.insertDeliveryIfAbsent(delivery());
     const { post } = mockPost(() => ({ ok: false, status: 500, error: 'HTTP 500' }));
 
     const now = 1_700_000_000_000;
     const d = new WebhookDispatcher(store, cfg, () => now, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
-    const after = store.getDelivery('0xabc:0')!;
+    const after = (await store.getDelivery('0xabc:0'))!;
     expect(after.status).toBe('pending');
     expect(after.attempts).toBe(1);
     expect(after.lastError).toBe('HTTP 500');
@@ -127,41 +127,41 @@ describe('WebhookDispatcher.attempt', () => {
 
   it('marks failed after exhausting max attempts', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
-    store.insertDeliveryIfAbsent({ ...delivery(), attempts: cfg.WEBHOOK_MAX_ATTEMPTS - 1 });
+    await store.upsertMerchant(merchant);
+    await store.insertDeliveryIfAbsent({ ...delivery(), attempts: cfg.WEBHOOK_MAX_ATTEMPTS - 1 });
     const { post } = mockPost(() => ({ ok: false, status: 500, error: 'HTTP 500' }));
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
-    expect(store.getDelivery('0xabc:0')!.status).toBe('failed');
-    expect(store.getDelivery('0xabc:0')!.attempts).toBe(cfg.WEBHOOK_MAX_ATTEMPTS);
+    expect((await store.getDelivery('0xabc:0'))!.status).toBe('failed');
+    expect((await store.getDelivery('0xabc:0'))!.attempts).toBe(cfg.WEBHOOK_MAX_ATTEMPTS);
   });
 
   it('holds deliveries for a deactivated merchant without burning attempts', async () => {
     const store = freshStore();
-    store.upsertMerchant({ ...merchant, active: false });
-    store.insertDeliveryIfAbsent(delivery());
+    await store.upsertMerchant({ ...merchant, active: false });
+    await store.insertDeliveryIfAbsent(delivery());
     const { post, calls } = mockPost(() => ({ ok: true, status: 200 }));
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
     expect(calls).toHaveLength(0);
-    const held = store.getDelivery('0xabc:0')!;
+    const held = (await store.getDelivery('0xabc:0'))!;
     expect(held.status).toBe('pending'); // resumes if the merchant is re-activated
     expect(held.attempts).toBe(0);
   });
 
   it('permanently fails a delivery whose merchant row disappeared', async () => {
     const store = freshStore();
-    store.insertDeliveryIfAbsent(delivery()); // no merchant row at all
+    await store.insertDeliveryIfAbsent(delivery()); // no merchant row at all
     const { post, calls } = mockPost(() => ({ ok: true, status: 200 }));
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
-    const after = store.getDelivery('0xabc:0')!;
+    const after = (await store.getDelivery('0xabc:0'))!;
     expect(calls).toHaveLength(0);
     expect(after.status).toBe('failed');
     expect(after.attempts).toBe(0);
@@ -170,15 +170,15 @@ describe('WebhookDispatcher.attempt', () => {
 
   it('refuses to deliver to a private-IP target and never dials (SSRF guard)', async () => {
     const store = freshStore();
-    store.upsertMerchant({ ...merchant, webhookUrl: 'https://127.0.0.1/webhook' });
-    store.insertDeliveryIfAbsent({ ...delivery(), url: 'https://127.0.0.1/webhook' });
+    await store.upsertMerchant({ ...merchant, webhookUrl: 'https://127.0.0.1/webhook' });
+    await store.insertDeliveryIfAbsent({ ...delivery(), url: 'https://127.0.0.1/webhook' });
 
     // Guard active (allowInsecure false) — the transport rejects the literal before any socket.
     const strictCfg = { ...cfg, WEBHOOK_ALLOW_INSECURE_URLS: false } as unknown as Config;
     const d = new WebhookDispatcher(store, strictCfg, () => 1_700_000_000_000); // real httpPost
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
-    const after = store.getDelivery('0xabc:0')!;
+    const after = (await store.getDelivery('0xabc:0'))!;
     expect(after.status).toBe('pending'); // retried, not permanently failed (attempts < max)
     expect(after.attempts).toBe(1);
     expect(after.lastError).toMatch(/private\/reserved IP/);
@@ -186,14 +186,14 @@ describe('WebhookDispatcher.attempt', () => {
 
   it('treats a 3xx as a failed delivery (redirects never followed)', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
-    store.insertDeliveryIfAbsent(delivery());
+    await store.upsertMerchant(merchant);
+    await store.insertDeliveryIfAbsent(delivery());
     const { post } = mockPost(() => ({ ok: false, status: 302, error: 'unexpected redirect (not followed)' }));
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    await d.attempt(store.getDelivery('0xabc:0')!);
+    await d.attempt((await store.getDelivery('0xabc:0'))!);
 
-    const after = store.getDelivery('0xabc:0')!;
+    const after = (await store.getDelivery('0xabc:0'))!;
     expect(after.status).toBe('pending');
     expect(after.attempts).toBe(1);
     expect(after.lastError).toMatch(/redirect/);
@@ -201,8 +201,8 @@ describe('WebhookDispatcher.attempt', () => {
 
   it('discards a stale write when the delivery was retried concurrently (CAS)', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
-    store.insertDeliveryIfAbsent(delivery());
+    await store.upsertMerchant(merchant);
+    await store.insertDeliveryIfAbsent(delivery());
 
     let release: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -212,12 +212,12 @@ describe('WebhookDispatcher.attempt', () => {
     });
 
     const d = new WebhookDispatcher(store, cfg, () => 1_700_000_000_000, post);
-    const attempt = d.attempt(store.getDelivery('0xabc:0')!);
+    const attempt = d.attempt((await store.getDelivery('0xabc:0'))!);
 
     // While the attempt is dialing, an admin retry resets the delivery (attempts 0, pending).
     const nowMs = Date.now();
-    const fresh = store.getDelivery('0xabc:0')!;
-    store.updateDelivery({
+    const fresh = (await store.getDelivery('0xabc:0'))!;
+    await store.updateDelivery({
       ...fresh,
       status: 'pending',
       attempts: 0,
@@ -229,18 +229,18 @@ describe('WebhookDispatcher.attempt', () => {
     await attempt;
 
     // The in-flight attempt's stale write (attempts 1) must NOT clobber the retry's reset.
-    const after = store.getDelivery('0xabc:0')!;
+    const after = (await store.getDelivery('0xabc:0'))!;
     expect(after.attempts).toBe(0);
     expect(after.status).toBe('pending');
   });
 
   it('delivers a due batch concurrently — one slow endpoint does not stall the rest', async () => {
     const store = freshStore();
-    store.upsertMerchant(merchant);
+    await store.upsertMerchant(merchant);
     // ids ordered oldest-first: the two slow ones would block the fast one if delivery were serial.
-    store.insertDeliveryIfAbsent({ ...delivery(), id: 'slow:0' });
-    store.insertDeliveryIfAbsent({ ...delivery(), id: 'slow:1' });
-    store.insertDeliveryIfAbsent({ ...delivery(), id: 'fast:2' });
+    await store.insertDeliveryIfAbsent({ ...delivery(), id: 'slow:0' });
+    await store.insertDeliveryIfAbsent({ ...delivery(), id: 'slow:1' });
+    await store.insertDeliveryIfAbsent({ ...delivery(), id: 'fast:2' });
 
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const SLOW_MS = 300;
@@ -256,7 +256,7 @@ describe('WebhookDispatcher.attempt', () => {
 
     // Serial would take >= 2 × SLOW_MS; parallel takes ~SLOW_MS. Give CI generous slack.
     expect(elapsed).toBeLessThan(SLOW_MS * 1.5);
-    expect(['slow:0', 'slow:1', 'fast:2'].map((id) => store.getDelivery(id)!.status)).toEqual([
+    expect(await Promise.all(['slow:0', 'slow:1', 'fast:2'].map(async (id) => (await store.getDelivery(id))!.status))).toEqual([
       'delivered',
       'delivered',
       'delivered',

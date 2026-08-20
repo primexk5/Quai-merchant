@@ -57,6 +57,12 @@ const EnvSchema = z.object({
   PUBLIC_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
 
   DATABASE_PATH: z.string().default('./data/relayer.db'),
+  // When set, the relayer uses PostgreSQL instead of the JSON file (DATABASE_PATH is ignored).
+  // Railway exposes this automatically as DATABASE_URL when a Postgres service is attached.
+  DATABASE_URL: z.string().optional(),
+  // Force TLS for the Postgres connection (Railway requires it). Auto-detected from sslmode in
+  // DATABASE_URL when present; set true explicitly if your URL omits it.
+  DATABASE_SSL: boolish(false),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   LOG_PRETTY: boolish(false),
 });
