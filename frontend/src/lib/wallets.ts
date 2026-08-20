@@ -42,6 +42,12 @@ export const QUAI_ORCHARD_CHAIN = {
 const STORAGE_KEY = "quaimerchant:active-wallet";
 
 interface UnknownProvider {
+  /** Blip's provider flags (window.quai in its in-app browser). */
+  isBlip?: boolean;
+  _isSwiftBlip?: boolean;
+  /** Pelagus desktop extension. Blip ALSO sets isPelagus:true for compat — so isPelagus
+   *  must never be treated as "Blip" or win over the Blip flags. */
+  isPelagus?: boolean;
   isMetaMask?: boolean;
   isRabby?: boolean;
   isCoinbaseWallet?: boolean;
@@ -69,8 +75,13 @@ function identify(
   provider: Eip1193Provider,
   fromPelagusSlot: boolean,
 ): { name: string; brand: WalletBrand } {
-  if (fromPelagusSlot) return { name: "Pelagus", brand: "pelagus" };
   const p = provider as UnknownProvider;
+  // Blip first — its provider sets isPelagus:true for Pelagus compatibility, so
+  // the Blip flags must always win over isPelagus.
+  if (p.isBlip || p._isSwiftBlip) return { name: "Blip Wallet", brand: "blip" };
+  // Pelagus — either the window.pelagus slot, or a Pelagus provider exposed on
+  // window.quai for backwards compatibility (no Blip flags).
+  if (fromPelagusSlot || p.isPelagus) return { name: "Pelagus", brand: "pelagus" };
   if (p.isRabby) return { name: "Rabby", brand: "rabby" };
   if (p.isCoinbaseWallet || p.isCoinbaseExtension)
     return { name: "Coinbase Wallet", brand: "coinbase" };
@@ -122,8 +133,8 @@ export function detectWallets(): DetectedWallet[] {
   };
 
   // Blip wallet injects window.quai (flagged isBlip/_isSwiftBlip) — detect it first.
-  // Pelagus may also expose window.quai without those flags, so don't assume the
-  // presence of window.quai alone means Blip.
+  // Pelagus may expose window.quai too (backwards compat) — without Blip flags it
+  // falls through to identify(), which maps isPelagus → brand "pelagus".
   if (window.quai) {
     const p = window.quai;
     if (p.isBlip || p._isSwiftBlip) {
