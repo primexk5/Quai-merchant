@@ -10,7 +10,7 @@ import {
   type Signer,
 } from "quais";
 import paywithquaiAbi from "./paywithquai.abi.json";
-import { getActiveWallet } from "./wallets";
+import { ensureQuaiNetwork, getActiveWallet } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
@@ -205,6 +205,41 @@ async function getSigner(): Promise<Signer> {
   return provider.getSigner();
 }
 
+/** Puts the connected wallet on the app's chain (Quai Orchard, 15000) and returns a signer.
+ *  Without this, a wallet on its default chain broadcasts into a mempool the app never sees,
+ *  and the registration would hang forever waiting for a receipt. */
+async function getSignerOnNetwork(): Promise<Signer> {
+  const wallet = getActiveWallet();
+  if (!wallet) {
+    throw new Error("No wallet connected — connect a wallet first.");
+  }
+  const net = await ensureQuaiNetwork(wallet.provider);
+  if (net === "unsupported") {
+    throw new Error(
+      "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in your wallet and retry.",
+    );
+  }
+  return new BrowserProvider(wallet.provider).getSigner();
+}
+
+/**
+ * Wait for a transaction receipt via the app's canonical RPC, NOT the wallet's provider.
+ * The wallet's provider can sit on a different node/shard that never sees the receipt — and a
+ * tx broadcast to the wrong chain never mines at all — so this is bounded by a timeout and
+ * fails with a clear error instead of loading forever.
+ */
+async function waitForTxReceipt(hash: string, timeoutMs = 60_000): Promise<string> {
+  try {
+    const receipt = await getRpcProvider().waitForTransaction(hash, 1, timeoutMs);
+    if (!receipt) throw new Error("no receipt");
+    return receipt.hash;
+  } catch {
+    throw new Error(
+      "Transaction was submitted but hasn't confirmed. Check your wallet is on Quai Orchard (chain 15000) and try again.",
+    );
+  }
+}
+
 function getContract(signer?: Signer): Contract {
   return new Contract(
     requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
@@ -231,11 +266,10 @@ export async function registerOrder(
   amount: bigint,
   expiry = 0n,
 ): Promise<string> {
-  const signer = await getSigner();
+  const signer = await getSignerOnNetwork();
   await assertMerchantSigner(signer, merchant);
   const tx = await getContract(signer).registerOrder(orderId, token, amount, expiry);
-  const receipt = await tx.wait();
-  return receipt.hash;
+  return waitForTxReceipt(tx.hash);
 }
 
 export async function registerOrderBatch(
@@ -245,11 +279,10 @@ export async function registerOrderBatch(
   amount: bigint,
   expiry = 0n,
 ): Promise<string> {
-  const signer = await getSigner();
+  const signer = await getSignerOnNetwork();
   await assertMerchantSigner(signer, merchant);
   const tx = await getContract(signer).registerOrderBatch(orderIds, token, amount, expiry);
-  const receipt = await tx.wait();
-  return receipt.hash;
+  return waitForTxReceipt(tx.hash);
 }
 
 /** Merchant registers an order that only `expectedPayer` may settle (anti-front-running for
@@ -262,7 +295,7 @@ export async function registerOrderWithPayer(
   expiry: bigint,
   expectedPayer: string,
 ): Promise<string> {
-  const signer = await getSigner();
+  const signer = await getSignerOnNetwork();
   await assertMerchantSigner(signer, merchant);
   const tx = await getContract(signer).registerOrderWithPayer(
     orderId,
@@ -271,8 +304,7 @@ export async function registerOrderWithPayer(
     expiry,
     expectedPayer,
   );
-  const receipt = await tx.wait();
-  return receipt.hash;
+  return waitForTxReceipt(tx.hash);
 }
 
 /** Customer settles an ERC-20 order (approve + payOrder). Returns the tx receipt. */
@@ -286,12 +318,12 @@ export async function payOrder(
   const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
   const contract = getContract(signer);
   try {
-    await (await new Contract(token, [
+    const approveTx = await new Contract(token, [
       "function approve(address spender, uint256 amount) returns (bool)",
-    ], signer).approve(payAddress, amount)).wait();
+    ], signer).approve(payAddress, amount);
+    await waitForTxReceipt(approveTx.hash);
     const tx = await contract.payOrder(merchant, orderId);
-    const receipt = await tx.wait();
-    return receipt.hash;
+    return waitForTxReceipt(tx.hash);
   } catch (err) {
     const reason = await getRevertReason(merchant, orderId, {
       token,
@@ -315,8 +347,7 @@ export async function payOrderNative(
     const tx = await getContract(signer).payOrderNative(merchant, orderId, {
       value,
     });
-    const receipt = await tx.wait();
-    return receipt.hash;
+    return waitForTxReceipt(tx.hash);
   } catch (err) {
     const reason = await getRevertReason(merchant, orderId, {
       value,
