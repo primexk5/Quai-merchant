@@ -30,8 +30,10 @@ import {
 } from "@/lib/payment";
 import {
   blipBrowserLink,
+  blipDeepLink,
   checkoutPageUrl,
   isInsideBlipBrowser,
+  isMobileViewport,
 } from "@/lib/blip";
 import {
   connectWallet,
@@ -502,12 +504,34 @@ export default function CheckoutPage({ params }: { params: Params }) {
                               connect.
                             </p>
                             <a
-                              href={blipBrowserLink(checkoutUrl)}
+                              href={
+                                isMobileViewport()
+                                  ? blipDeepLink(checkoutUrl)
+                                  : blipBrowserLink(checkoutUrl)
+                              }
                               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
                             >
                               <Smartphone size={15} />
                               Open in Blip app
                             </a>
+                            <p className="mt-3 text-center text-xs text-[#4f5868]">
+                              {isMobileViewport() ? (
+                                <>
+                                  Not opening?{" "}
+                                  <a
+                                    href={blipBrowserLink(checkoutUrl)}
+                                    className="text-[#C1ED00] hover:underline"
+                                  >
+                                    Use the web link
+                                  </a>
+                                </>
+                              ) : (
+                                <>
+                                  Scan the QR above with your phone to pay in
+                                  Blip.
+                                </>
+                              )}
+                            </p>
                             <p className="mt-3 text-center text-xs text-[#4f5868]">
                               Don&apos;t have Blip?{" "}
                               <a
