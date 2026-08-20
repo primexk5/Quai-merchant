@@ -136,8 +136,8 @@ Verify the signature over the **raw body** (constant-time), tolerate a few secon
 
 ```json
 {
-  "payWithQuai": "0x0078cd401e3CF4bE9Bc3b104783c611e35F11816",
-  "mockStablecoin": "0x0068f42D5Bd511363f52a1ade1ecD41B4bdD8F8e"
+  "payWithQuai": "0x00707FB75afede47F3cE44A357fb2fb29C14734e",
+  "mockStablecoin": "0x003fafB5126a5296c6edC7C23De55daf2E84B503"
 }
 ```
 

@@ -5,8 +5,8 @@ import { BrowserProvider, Contract } from "quais";
 import { getActiveWallet } from "@/lib/wallets";
 import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
 
-// The mock stablecoin address used on Orchard Testnet
-const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x0068f42D5Bd511363f52a1ade1ecD41B4bdD8F8e";
+// The mock stablecoin address used on Orchard Testnet (contracts/deployments/cyprus1.json).
+const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x003fafB5126a5296c6edC7C23De55daf2E84B503";
 
 // Minimal ERC20 ABI for balance checking
 const ERC20_ABI = [
@@ -39,14 +39,23 @@ export function WalletBalances() {
       if (!accounts.length) throw new Error("Wallet locked");
       const address = accounts[0].address;
 
-      // Fetch Native QUAI
-      const balance = await provider.getBalance(address);
-      setQuaiBalance((Number(balance) / 1e18).toFixed(2));
+      // Fetch Native QUAI — keep it independent so a failing token read doesn't hide it.
+      try {
+        const balance = await provider.getBalance(address);
+        setQuaiBalance((Number(balance) / 1e18).toFixed(2));
+      } catch (err) {
+        console.error("Error fetching QUAI balance:", err);
+      }
 
-      // Fetch mUSDQ (6 decimals)
-      const tokenContract = new Contract(MUSDQ_ADDRESS, ERC20_ABI, provider);
-      const tokenBalance = await tokenContract.balanceOf(address);
-      setMusdqBalance((Number(tokenBalance) / 1e6).toFixed(2));
+      // Fetch mUSDQ (6 decimals) — token read failures (e.g. wrong address) fail this row only.
+      try {
+        const tokenContract = new Contract(MUSDQ_ADDRESS, ERC20_ABI, provider);
+        const tokenBalance = await tokenContract.balanceOf(address);
+        setMusdqBalance((Number(tokenBalance) / 1e6).toFixed(2));
+      } catch (err) {
+        console.error("Error fetching mUSDQ balance:", err);
+        setError("Failed to load token balances");
+      }
     } catch (err) {
       console.error("Error fetching balances:", err);
       setError("Failed to load balances");

@@ -3,6 +3,7 @@ import {
   Contract,
   JsonRpcProvider,
   formatQuai,
+  getAddress,
   id,
   parseQuai,
   type Signer,
@@ -12,8 +13,43 @@ import { getActiveWallet } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
-export const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS!;
+// Stablecoin deployed alongside PayWithQuai (contracts/deployments/cyprus1.json). Falls back so
+// the app keeps working when NEXT_PUBLIC_MUSDQ_ADDRESS is unset — overrides win when set.
+export const MUSDQ_ADDRESS =
+  process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x003fafB5126a5296c6edC7C23De55daf2E84B503";
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+
+/** Resolve a NEXT_PUBLIC_* contract address with a clear failure instead of the cryptic
+ *  "unsupported addressable value (argument="target", value=null)" thrown by `new Contract(...)`
+ *  when the env var is unset (NEXT_PUBLIC_ vars are inlined at build time). */
+function requireAddress(name: string, value: string | undefined): string {
+  if (!value) {
+    throw new Error(
+      `${name} is not set in the frontend environment. NEXT_PUBLIC_* variables are inlined at ` +
+        `build time — add it (see frontend/.env.local.example and frontend/src/app/docs/page.tsx) ` +
+        `and redeploy.`,
+    );
+  }
+  try {
+    return getAddress(value);
+  } catch {
+    throw new Error(`${name}=${value} is not a valid address`);
+  }
+}
+
+/** One provider reused across polls — avoids re-doing DNS/TLS handshakes on every status check,
+ *  which matters a lot on slow or mobile networks. */
+let rpcProvider: JsonRpcProvider | undefined;
+function getRpcProvider(): JsonRpcProvider {
+  if (!rpcProvider) {
+    const url = process.env.NEXT_PUBLIC_RPC_URL;
+    if (!url) {
+      throw new Error("NEXT_PUBLIC_RPC_URL is not set in the frontend environment — add it and redeploy.");
+    }
+    rpcProvider = new JsonRpcProvider(url, undefined, { usePathing: true });
+  }
+  return rpcProvider;
+}
 
 /** Comma-separated fallback list, e.g. "http://localhost:8080,https://quai-merchant.onrender.com".
  *  Each request tries the backends in order and uses the first that is reachable. */
@@ -59,7 +95,11 @@ async function getSigner(): Promise<Signer> {
 }
 
 function getContract(signer?: Signer): Contract {
-  return new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, signer);
+  return new Contract(
+    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    paywithquaiAbi,
+    signer,
+  );
 }
 
 /** Orders are keyed by msg.sender on-chain — the connected wallet must match `merchant`. */
@@ -132,10 +172,11 @@ export async function payOrder(
   amount: bigint,
 ): Promise<string> {
   const signer = await getSigner();
+  const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
   const contract = getContract(signer);
   await (await new Contract(token, [
     "function approve(address spender, uint256 amount) returns (bool)",
-  ], signer).approve(PAYWITHQUAI_ADDRESS, amount)).wait();
+  ], signer).approve(payAddress, amount)).wait();
   const tx = await contract.payOrder(merchant, orderId);
   const receipt = await tx.wait();
   return receipt.hash;
@@ -179,10 +220,11 @@ export interface OrderStatus {
 export async function fetchOrderStatus(
   merchant: string,
   orderId: string,
+  timeoutMs = 10_000,
 ): Promise<OrderStatus | null> {
   const res = await backendFetch(
     `/v1/orders/${merchant}/${orderId}`,
-    { signal: AbortSignal.timeout(10_000) },
+    { signal: AbortSignal.timeout(timeoutMs) },
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`backend error ${res.status}`);
@@ -194,10 +236,11 @@ export async function isSettledOnChain(
   merchant: string,
   orderId: string,
 ): Promise<boolean> {
-  const provider = new JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL!, undefined, {
-    usePathing: true,
-  });
-  const contract = new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, provider);
+  const contract = new Contract(
+    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    paywithquaiAbi,
+    getRpcProvider(),
+  );
   return (await contract.isSettled(merchant, orderId)) as boolean;
 }
 
@@ -220,10 +263,11 @@ export async function getOrderOnChain(
   merchant: string,
   orderId: string,
 ): Promise<OnChainOrder | null> {
-  const provider = new JsonRpcProvider(process.env.NEXT_PUBLIC_RPC_URL!, undefined, {
-    usePathing: true,
-  });
-  const contract = new Contract(PAYWITHQUAI_ADDRESS, paywithquaiAbi, provider);
+  const contract = new Contract(
+    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    paywithquaiAbi,
+    getRpcProvider(),
+  );
   const o = (await contract.getOrder(merchant, orderId)) as Record<string, unknown>;
   return {
     merchant,
@@ -258,23 +302,23 @@ export async function waitForConfirmation(
   let backendOk = false;
   let settledOnChain = false;
   while (Date.now() < deadline) {
-    try {
-      const order = await fetchOrderStatus(merchant, orderId);
-      if (order) {
-        onProgress?.(order.webhook?.status ?? null);
-        if (order.settled && order.webhook?.status === "delivered") {
-          return { backend: true, settledOnChain: true, webhookDelivered: true };
-        }
-        backendOk = true;
-        if (order.settled) settledOnChain = true;
+    // Check backend and chain in parallel — a slow backend must never gate the chain read.
+    const [order, settledChain] = await Promise.all([
+      fetchOrderStatus(merchant, orderId, 4_000).catch(() => null),
+      settledOnChain
+        ? Promise.resolve(true)
+        : isSettledOnChain(merchant, orderId).catch(() => false),
+    ]);
+    if (order) {
+      onProgress?.(order.webhook?.status ?? null);
+      if (order.settled && order.webhook?.status === "delivered") {
+        return { backend: true, settledOnChain: true, webhookDelivered: true };
       }
-    } catch {
-      // backend unreachable — fall back to on-chain reads below
+      backendOk = true;
+      if (order.settled) settledOnChain = true;
     }
-    if (!settledOnChain) {
-      settledOnChain = await isSettledOnChain(merchant, orderId).catch(() => false);
-    }
-    await new Promise((r) => setTimeout(r, 4000));
+    if (settledChain) settledOnChain = true;
+    await new Promise((r) => setTimeout(r, 2000));
   }
   if (!settledOnChain) {
     settledOnChain = await isSettledOnChain(merchant, orderId).catch(() => false);
@@ -390,16 +434,14 @@ export async function waitForOnChainConfirmation(
   const deadline = Date.now() + maxSeconds * 1000;
   onProgress?.('Waiting for block confirmation…');
   while (Date.now() < deadline) {
-    const settled = await isSettledOnChain(merchant, orderId).catch(() => false);
-    if (settled) return true;
-    // Also check via backend (faster when relayer is ahead)
-    try {
-      const order = await fetchOrderStatus(merchant, orderId);
-      if (order?.settled) return true;
-    } catch {
-      // backend unreachable — rely on on-chain check
-    }
-    await new Promise((r) => setTimeout(r, 3000));
+    // Chain + backend in parallel; backend gets a short timeout so a slow or sleeping relayer
+    // never delays the fast on-chain confirmation.
+    const [settledChain, order] = await Promise.all([
+      isSettledOnChain(merchant, orderId).catch(() => false),
+      fetchOrderStatus(merchant, orderId, 4_000).catch(() => null),
+    ]);
+    if (settledChain || order?.settled) return true;
+    await new Promise((r) => setTimeout(r, 2000));
   }
   return false;
 }
