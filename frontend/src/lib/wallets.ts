@@ -58,8 +58,9 @@ interface UnknownProvider {
 declare global {
   interface Window {
     pelagus?: Eip1193Provider;
-    /** Blip wallet injects window.quai inside its in-app browser */
-    quai?: Eip1193Provider & { isBlip?: boolean };
+    /** Blip wallet injects window.quai inside its in-app browser (flagged isBlip/_isSwiftBlip).
+     *  Pelagus may also expose window.quai for backwards compatibility — without Blip flags. */
+    quai?: Eip1193Provider & { isBlip?: boolean; _isSwiftBlip?: boolean };
     ethereum?: Eip1193Provider & { providers?: Eip1193Provider[] };
   }
 }
@@ -120,10 +121,14 @@ export function detectWallets(): DetectedWallet[] {
     });
   };
 
-  // Blip wallet injects window.quai — detect it specifically first
+  // Blip wallet injects window.quai (flagged isBlip/_isSwiftBlip) — detect it first.
+  // Pelagus may also expose window.quai without those flags, so don't assume the
+  // presence of window.quai alone means Blip.
   if (window.quai) {
-    if (!seen.has(providerId(window.quai))) {
-      seen.add(providerId(window.quai));
+    const p = window.quai;
+    if (p.isBlip || p._isSwiftBlip) {
+      const key = providerId(window.quai);
+      seen.add(key);
       wallets.push({
         id: "blip:quai",
         name: "Blip Wallet",
@@ -131,6 +136,13 @@ export function detectWallets(): DetectedWallet[] {
         provider: window.quai,
         supportsQuai: true,
       });
+      // Blip aliases the same provider into window.pelagus / window.ethereum —
+      // dedupe those slots so Blip isn't listed twice (as Pelagus / generic).
+      for (const alias of [window.pelagus, window.ethereum]) {
+        if (alias) seen.add(providerId(alias));
+      }
+    } else {
+      push(window.quai, false);
     }
   }
 

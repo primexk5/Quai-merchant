@@ -104,6 +104,24 @@ export default function CheckoutPage({ params }: { params: Params }) {
     };
   }, [merchant, orderId]);
 
+  // Blip's in-app browser can inject window.quai a moment after first paint — keep
+  // polling so the "Pay with Blip" panel appears instead of the "Open in Blip" loop.
+  useEffect(() => {
+    if (insideBlip || connected || stage.name !== "ready") return;
+    let attempts = 0;
+    const timer = setInterval(() => {
+      if (++attempts > 10) {
+        clearInterval(timer);
+        return;
+      }
+      if (isInsideBlipBrowser()) {
+        clearInterval(timer);
+        setInsideBlip(true);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [insideBlip, connected, stage.name]);
+
   /** Inside Blip's browser: auto-connect window.quai so pay is one tap. */
   useEffect(() => {
     if (!insideBlip || connected || stage.name !== "ready") return;

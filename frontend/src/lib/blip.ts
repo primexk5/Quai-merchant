@@ -10,13 +10,19 @@
  */
 
 import { useState, useEffect } from "react";
+import type { Eip1193Provider } from "@/lib/wallets";
 
 /** True when running inside Blip's built-in browser (window.quai is injected). */
 export function isInsideBlipBrowser(): boolean {
   if (typeof window === "undefined") return false;
-  // Pelagus also injects window.quai for backwards compatibility.
-  if (window.quai && (window.quai as { isPelagus?: boolean }).isPelagus) return false;
-  return !!window.quai;
+  const quai = window.quai as
+    | (Eip1193Provider & { isBlip?: boolean; _isSwiftBlip?: boolean })
+    | undefined;
+  if (!quai) return false;
+  // Blip injects window.quai and marks itself with isBlip / _isSwiftBlip. It ALSO sets
+  // isPelagus:true for Pelagus compatibility, so we must NOT treat isPelagus as
+  // "not Blip" — only a bare Pelagus extension (no Blip flags) is a desktop wallet.
+  return Boolean(quai.isBlip || quai._isSwiftBlip);
 }
 
 /** True on mobile-class viewports. */
