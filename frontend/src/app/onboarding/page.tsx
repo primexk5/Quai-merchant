@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, Copy, Loader2, Smartphone, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Copy,
+  ExternalLink,
+  Loader2,
+  Smartphone,
+  Wallet,
+} from "lucide-react";
 import { useState } from "react";
 import { parseError } from "@/lib/utils";
 import { Logo } from "@/components/logo";
@@ -10,9 +19,9 @@ import { storeWalletId } from "@/lib/wallets";
 import { useBlipContext } from "@/lib/blip";
 import QRCode from "react-qr-code";
 
-function BlipLogo() {
+function BlipLogo({ className = "h-4 w-4" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 100 100" className="h-4 w-4 shrink-0">
+    <svg viewBox="0 0 100 100" className={`shrink-0 ${className}`}>
       <circle cx="50" cy="50" r="50" fill="#C1ED00" />
       <path fill="#0F1116" d="m98.3 24.4c0-7.2-6.9-13.9-18.2-13.9-7.1-0.1-15.7 2-19.8 8.6-2.6-1.8-6.3-3.9-12.6-3.9-6.8 0-13.4 2.5-16.8 8.2-3.2-1.9-6.5-3.2-12.1-3.2-8.9 0-16.8 4.4-16.8 11.7v19.9c2.4 9.2 14.2 26 47.5 34.9 3.9 0.9 9.1 1.9 12.6 2.4 7.3 0.7 17.8-1.5 19.7-9.6 0.4-1.8 0-8.5 0.2-8.5 2.6-0.6 7.9-3.7 8.6-9.3v-8.4c3.2-1.3 7.7-4.8 7.7-10.2v-18.7z"/>
       <path fill="#C1ED00" d="m58.4 26.6c-1.3-3.5-6.5-5.1-10.7-5-6.3 0-12.5 2.9-11.1 7 2.5 6.9 11.1 15.4 25.9 18.6 3.7 0.9 7.6 1.4 10.9 1.5 10.1 0 14-7 7.7-10.5-3.3-1.8-5.7-1.6-7.7-2-5.7-0.8-12.7-3.6-15-9.6zm-28.8 4.3c-1.5-2.7-6-4.6-10.8-4.6-6.7 0-12.5 3.2-10.9 7.3 3 8 13.7 20.3 35.6 26.9 4.9 1.6 11.1 2.9 16 3.7 12 2 19.6-3.7 15-8-2.9-2.4-5.9-2.7-7.8-3-13.2-1.6-32.1-8.6-37.1-22.3zm49.3-14.1c-7.8 0-13.7 3.6-13.7 7.4 0 2.9 3.9 7.2 13.2 7.3 8.2 0 14-3.3 14-7.1 0.1-3.2-4-7.4-13.5-7.6z"/>
@@ -221,31 +230,33 @@ export default function OnboardingPage() {
               </p>
 
               {address ? (
+                /* ── Wallet already connected ── */
                 <div className="mt-6 rounded-xl border border-emerald-400/15 bg-emerald-400/6 px-4 py-3">
                   <p className="text-xs text-[#8b93a7]">Connected (Cyprus-1)</p>
                   <p className="mt-1 break-all font-mono text-xs text-emerald-300">{address}</p>
                 </div>
               ) : insideBlip ? (
-                /* Inside Blip browser: single tap button */
+                /* ── INSIDE Blip browser: one-tap connect ── */
                 <div className="mt-6">
-                  <div className="mb-3 flex items-center gap-3 rounded-2xl border border-[#C1ED00]/20 bg-[#C1ED00]/5 px-4 py-3">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#C1ED00]">
-                      <BlipLogo />
+                  <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#C1ED00]/20 bg-[#C1ED00]/5 px-4 py-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#C1ED00]">
+                      <BlipLogo className="h-5 w-5" />
                     </span>
-                    <p className="text-sm text-[#C1ED00]">Blip detected — connect in one tap.</p>
+                    <p className="text-sm text-[#C1ED00]">You&apos;re inside Blip — connect in one tap.</p>
                   </div>
                   <button
                     onClick={() => void connectBlip()}
                     disabled={blipConnecting}
                     className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00] disabled:opacity-60"
                   >
-                    {blipConnecting ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} />}
+                    {blipConnecting ? <Loader2 size={15} className="animate-spin" /> : <BlipLogo className="h-4 w-4" />}
                     {blipConnecting ? "Connecting…" : "Connect with Blip"}
                   </button>
                 </div>
               ) : (
-                /* Desktop / other browsers: tab switcher */
+                /* ── OUTSIDE Blip: tab switcher — Blip Pay always shown first ── */
                 <div className="mt-6 overflow-hidden rounded-2xl border border-white/7">
+                  {/* Tab bar */}
                   <div className="flex border-b border-white/7">
                     <button
                       onClick={() => setWalletTab("blip")}
@@ -254,7 +265,7 @@ export default function OnboardingPage() {
                       }`}
                     >
                       <BlipLogo />
-                      Blip
+                      Blip Pay
                     </button>
                     <button
                       onClick={() => setWalletTab("wallet")}
@@ -267,46 +278,98 @@ export default function OnboardingPage() {
                     </button>
                   </div>
 
+                  {/* ── Blip Pay tab — hero card always visible on ANY browser ── */}
                   {walletTab === "blip" && (
-                    <div className="flex flex-col items-center px-5 py-5">
-                      {isMobile ? (
-                        <>
-                          <p className="mb-4 text-center text-sm text-[#8b93a7]">
-                            Opens this page inside the Blip app — your wallet connects automatically.
-                          </p>
-                          <a href={blipDeep} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-2.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]">
-                            <Smartphone size={14} />
-                            Open in Blip
-                          </a>
-                          <p className="mt-3 text-center text-xs text-[#4f5868]">
-                            Not opening?{" "}
-                            <a href={blipLink} className="text-[#C1ED00] hover:underline">
-                              Use the web link
-                            </a>
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <div className="mb-3 rounded-2xl bg-white p-3 shadow-md ring-4 ring-[#C1ED00]/20">
-                            <QRCode value={blipDeep} size={132} level="M" fgColor="#0F1116" />
+                    <div className="p-5">
+                      {/* Hero card */}
+                      <div className="rounded-2xl border border-[#C1ED00]/15 bg-[#C1ED00]/4 p-5">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#C1ED00]">
+                            <BlipLogo className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold text-white">Onboard via Blip Pay</p>
+                            <p className="text-xs text-[#8b93a7]">Self-custody mobile wallet for Quai</p>
                           </div>
-                          <p className="mb-1 text-sm font-medium text-white">Scan with Blip</p>
-                          <p className="mb-4 text-center text-xs text-[#8b93a7]">
-                            Opens this page inside the Blip app on your phone — connect in one tap.
-                          </p>
-                          <a href={blipLink} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/50">
-                            <Smartphone size={14} />
-                            Open in Blip app
-                          </a>
-                        </>
-                      )}
-                      <p className="mt-3 text-center text-xs text-[#4f5868]">
+                        </div>
+
+                        <p className="mt-3 text-sm leading-6 text-[#8b93a7]">
+                          Open this onboarding page inside the{" "}
+                          <strong className="text-[#C1ED00]">Blip app</strong>{" "}
+                          — your wallet connects in one tap and you can fill in your details right there.
+                        </p>
+
+                        {/* Mobile: deep-link buttons */}
+                        {isMobile ? (
+                          <div className="mt-4 space-y-2">
+                            <a
+                              href={blipDeep}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-2.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
+                            >
+                              <Smartphone size={15} />
+                              Open in Blip app
+                            </a>
+                            <a
+                              href={blipLink}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/50"
+                            >
+                              <ExternalLink size={13} />
+                              Use Blip web link
+                            </a>
+                          </div>
+                        ) : (
+                          /* Desktop: QR code + web-link button */
+                          <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+                            <div className="shrink-0 rounded-2xl bg-white p-3 shadow-md ring-4 ring-[#C1ED00]/20">
+                              <QRCode value={blipDeep} size={120} level="M" fgColor="#0F1116" />
+                            </div>
+                            <div className="flex flex-1 flex-col gap-3 text-center sm:text-left">
+                              <div>
+                                <p className="text-sm font-medium text-white">Scan with your phone</p>
+                                <p className="mt-1 text-xs text-[#8b93a7]">
+                                  Opens this page inside Blip — wallet connects in one tap.
+                                </p>
+                              </div>
+                              <a
+                                href={blipLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/50 sm:justify-start sm:px-4"
+                              >
+                                <ExternalLink size={13} />
+                                Open Blip web link
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Numbered steps guide */}
+                      <div className="mt-4 space-y-2">
+                        {[
+                          "Open this page inside the Blip app",
+                          'Tap "Connect with Blip" — wallet linked instantly',
+                          "Fill in your business details and complete onboarding",
+                        ].map((s, i) => (
+                          <div key={s} className="flex items-start gap-3">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#C1ED00]/10 text-[10px] font-bold text-[#C1ED00]">
+                              {i + 1}
+                            </span>
+                            <p className="text-xs leading-5 text-[#8b93a7]">{s}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <p className="mt-4 text-center text-xs text-[#4f5868]">
                         Don&apos;t have Blip?{" "}
-                        <a href="https://blippay.me" target="_blank" rel="noreferrer" className="text-[#C1ED00] hover:underline">Download Blip (iOS &amp; Android)</a>
+                        <a href="https://blippay.me" target="_blank" rel="noreferrer" className="text-[#C1ED00] hover:underline">
+                          Download Blip (iOS &amp; Android)
+                        </a>
                       </p>
                     </div>
                   )}
 
+                  {/* ── Browser Wallet tab ── */}
                   {walletTab === "wallet" && (
                     <div className="p-5">
                       <WalletSelector
@@ -435,6 +498,13 @@ export default function OnboardingPage() {
             </div>
           )}
         </div>
+
+        <p className="mt-5 text-center text-xs text-[#4f5868]">
+          Already onboarded?{" "}
+          <Link href="/login" className="text-[#38bdf8] hover:underline">
+            Sign in to your dashboard
+          </Link>
+        </p>
       </div>
     </main>
   );

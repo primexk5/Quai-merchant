@@ -85,13 +85,22 @@ export function isLoggedIn(): boolean {
  * The message is minted by the backend per request (single-use nonce + chain id + realm bound),
  * so a captured signature can never be replayed.
  */
-export async function loginWithWallet(): Promise<LoginResult> {
+/**
+ * @param preConnectedAddress Pass the address already obtained from WalletSelector so
+ *   we skip re-requesting accounts (which just opens the wallet UI again instead of
+ *   prompting the user to sign the challenge message).
+ */
+export async function loginWithWallet(
+  preConnectedAddress?: string,
+): Promise<LoginResult> {
   const wallet = getActiveWallet();
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
   await ensureQuaiNetwork(wallet.provider, chainForWallet(wallet.brand));
-  const address = await connectWallet(wallet);
+  // Use the already-connected address when available so we jump straight to
+  // the signature step instead of re-triggering the account-selection popup.
+  const address = preConnectedAddress ?? (await connectWallet(wallet));
 
   const provider = new BrowserProvider(wallet.provider);
   const signer = await provider.getSigner();

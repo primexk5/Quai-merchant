@@ -50,7 +50,7 @@ export default function LoginPage() {
     setError(null);
     setOnboardHint(false);
     try {
-      await loginWithWallet();
+      await loginWithWallet(address ?? undefined);
       router.replace("/dashboard");
     } catch (err) {
       const msg = parseError(err);
@@ -223,24 +223,26 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Sign-in CTA */}
-          <div className="px-6 pb-6 pt-4 sm:px-8 sm:pb-8">
-            <button
-              onClick={() => void signIn()}
-              disabled={!address || busy}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] font-semibold text-[#061018] transition hover:bg-[#67d8ff] disabled:opacity-50"
-            >
-              {busy ? (
-                <><Loader2 size={17} className="animate-spin" />Signing message…</>
-              ) : (
-                <>Sign in<ArrowRight size={17} /></>
-              )}
-            </button>
-            <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-[#4f5868]">
-              <ShieldCheck size={13} />
-              Your signature is never stored — only the session token is kept.
-            </p>
-          </div>
+          {/* Sign-in CTA — only shown once a wallet is connected */}
+          {address && (
+            <div className="px-6 pb-6 pt-4 sm:px-8 sm:pb-8">
+              <button
+                onClick={() => void signIn()}
+                disabled={busy}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] font-semibold text-[#061018] transition hover:bg-[#67d8ff] disabled:opacity-50"
+              >
+                {busy ? (
+                  <><Loader2 size={17} className="animate-spin" />Signing message…</>
+                ) : (
+                  <>Sign in<ArrowRight size={17} /></>
+                )}
+              </button>
+              <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-[#4f5868]">
+                <ShieldCheck size={13} />
+                Your signature is never stored — only the session token is kept.
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="mt-5 text-center text-xs text-[#4f5868]">

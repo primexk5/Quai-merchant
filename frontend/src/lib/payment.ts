@@ -194,18 +194,35 @@ function isTransientNetworkError(err: unknown): boolean {
   );
 }
 
-/** Fetch against the first reachable backend URL. Network failures and 502/503/504 fall
- *  through to the next candidate; other HTTP responses are returned as-is.
+/**
+ * Fetch against the backend. In a browser context all calls are routed through
+ * the Next.js `/api/v1` server-side proxy so they are same-origin — this avoids
+ * CORS preflight failures when the frontend runs on localhost:3000 while the
+ * backend is on a different origin (e.g. onrender.com). In server-side contexts
+ * (Next.js route handlers / server actions) the direct backend URL is used.
  *
- *  Transient network errors (ERR_NETWORK_CHANGED and friends) get one immediate retry so a
- *  connection blip on a phone doesn't kill a payment flow. POSTs are retried too — the backend
- *  endpoints are safe against doubles (claim has a per-wallet window that returns the same
- *  orderId; links/orders are idempotent by construction).
+ * Transient network errors get one quiet retry; other HTTP errors are returned
+ * as-is without retrying.
  *
- *  `credentials: "include"` makes the browser send (and store) the HttpOnly session cookie the
- *  backend issues at login — cross-origin, thanks to the backend's CORS + SameSite settings.
- *  NOTE: this module is imported by client components, so no secret may ever live here. */
+ * NOTE: this module is imported by client components, so no secret may ever live here.
+ */
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
+  // In the browser, proxy through Next.js to avoid cross-origin CORS failures.
+  // `path` always starts with "/v1/..." so strip that prefix for the proxy URL.
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    // /api/v1/<rest> → proxied server-side to the real backend with no CORS issue
+    const proxyPath = path.startsWith("/v1/")
+      ? `/api${path}`
+      : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+    try {
+      return await fetch(proxyPath, { credentials: "include", ...init });
+    } catch (err) {
+      throw err instanceof Error ? err : new Error("backend unreachable");
+    }
+  }
+
+  // Server-side: hit the real backend URL directly (no CORS restriction).
   let lastError: unknown;
   let lastResponse: Response | undefined;
   const attempts = 2;
@@ -261,20 +278,58 @@ async function getSignerOnNetwork(): Promise<Signer> {
 
 /**
  * Wait for a transaction receipt via the app's canonical RPC, NOT the wallet's provider.
+/**
+ * Wait for a transaction receipt via the app's canonical RPC, NOT the wallet's provider.
  * The wallet's provider can sit on a different node/shard that never sees the receipt — and a
  * tx broadcast to the wrong chain never mines at all — so this is bounded by a timeout and
  * fails with a clear error instead of loading forever.
+ *
+ * Strategy:
+ *  We rely strictly on polling `eth_getTransactionReceipt` every 4s.
+ *  (We bypass `provider.waitForTransaction` entirely because `quais` alpha.56 has a bug
+ *  where parsing blocks with cross-shard txs throws "Invalid shard", which randomly crashes
+ *  the built-in block-polling waiter on the active testnet).
  */
-async function waitForTxReceipt(hash: string, timeoutMs = 60_000): Promise<string> {
-  try {
-    const receipt = await getRpcProvider().waitForTransaction(hash, 1, timeoutMs);
-    if (!receipt) throw new Error("no receipt");
-    return receipt.hash;
-  } catch {
-    throw new Error(
-      "Transaction was submitted but hasn't confirmed. Check your wallet is on Quai Orchard (chain 15000) and try again.",
-    );
-  }
+async function waitForTxReceipt(hash: string, timeoutMs = 180_000): Promise<string> {
+  const provider = getRpcProvider();
+
+  return new Promise<string>((resolve, reject) => {
+    const interval = 4_000;
+    const deadline = Date.now() + timeoutMs;
+
+    const tick = async () => {
+      if (Date.now() > deadline) {
+        reject(
+          new Error(
+            `Your transaction was submitted (${hash}) but hasn't confirmed yet. ` +
+              `It may still be processing — check the explorer or your wallet before retrying.`,
+          )
+        );
+        return;
+      }
+      try {
+        // Use the library's built-in getTransactionReceipt, which handles zone routing correctly
+        // based on the hash prefix. (We still avoid provider.waitForTransaction because that
+        // polls getBlock and crashes on cross-shard txs).
+        const receipt = await provider.getTransactionReceipt(hash);
+
+        if (receipt && receipt.blockNumber != null) {
+          if (receipt.status === 0) {
+            reject(new Error("Transaction failed/reverted on-chain."));
+            return;
+          }
+          resolve(receipt.hash ?? hash);
+          return;
+        }
+      } catch (err) {
+        // RPC hiccup — log and keep polling
+        console.warn("Polling receipt failed (will retry):", err);
+      }
+      setTimeout(() => void tick(), interval);
+    };
+
+    void tick();
+  });
 }
 
 function getContract(signer?: Signer): Contract {
