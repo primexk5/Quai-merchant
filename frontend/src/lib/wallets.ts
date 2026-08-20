@@ -32,12 +32,29 @@ export interface DetectedWallet {
 }
 
 export const QUAI_ORCHARD_CHAIN = {
-  chainId: "0x3A98", // 15000 — Orchard testnet
+  chainId: "0x3A98", // 15000 — Orchard testnet (Pelagus)
   chainName: "Quai Network Orchard",
   nativeCurrency: { name: "Quai", symbol: "QUAI", decimals: 18 },
   rpcUrls: [process.env.NEXT_PUBLIC_RPC_URL ?? "https://orchard.rpc.quai.network"],
   blockExplorerUrls: ["https://orchard.quaiscan.io"],
 };
+
+export const QUAI_MAINNET_CHAIN = {
+  chainId: "0x9", // 9 — Quai mainnet, Cyprus-1 zone (Blip)
+  chainName: "Quai Network (Mainnet)",
+  nativeCurrency: { name: "Quai", symbol: "QUAI", decimals: 18 },
+  rpcUrls: [
+    process.env.NEXT_PUBLIC_RPC_MAINNET_URL ?? "https://rpc.quai.network/cyprus1",
+  ],
+  blockExplorerUrls: ["https://quaiscan.io"],
+};
+
+export type ChainConfig = typeof QUAI_ORCHARD_CHAIN;
+
+/** Blip lives on Quai mainnet; every other wallet targets the Orchard testnet. */
+export function chainForWallet(brand: WalletBrand | undefined): ChainConfig {
+  return brand === "blip" ? QUAI_MAINNET_CHAIN : QUAI_ORCHARD_CHAIN;
+}
 
 const STORAGE_KEY = "quaimerchant:active-wallet";
 
@@ -212,38 +229,45 @@ export async function getWalletChainId(
 }
 
 /**
- * Puts the wallet on the Quai Orchard testnet.
+ * Puts the wallet on the chain it operates on — Blip is a mainnet wallet,
+ * Pelagus and other wallets target the Orchard testnet.
  * Switches when the chain is already known, otherwise asks the wallet to add it.
+ * The outcome is verified by re-reading the wallet's chain id — wallets may resolve
+ * the switch promise without actually changing, or reject it with non-standard codes.
  */
 export async function ensureQuaiNetwork(
   provider: Eip1193Provider,
+  target: ChainConfig = chainForWallet(getActiveWallet()?.brand),
 ): Promise<"ok" | "unsupported"> {
-  const chainId = await getWalletChainId(provider);
-  if (chainId?.toLowerCase() === QUAI_ORCHARD_CHAIN.chainId.toLowerCase()) {
-    return "ok";
-  }
+  const targetId = target.chainId.toLowerCase();
+  const current = await getWalletChainId(provider);
+  if (current && current.toLowerCase() === targetId) return "ok";
+
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: QUAI_ORCHARD_CHAIN.chainId }],
+      params: [{ chainId: target.chainId }],
     });
-    return "ok";
+    const after = await getWalletChainId(provider);
+    if (after && after.toLowerCase() === targetId) return "ok";
   } catch (err) {
     const code = (err as { code?: number })?.code;
-    if (code === 4902 || code === -32603) {
-      try {
-        await provider.request({
-          method: "wallet_addEthereumChain",
-          params: [QUAI_ORCHARD_CHAIN],
-        });
-        return "ok";
-      } catch {
-        return "unsupported";
-      }
-    }
     if (code === 4001) throw new Error("Network switch declined.");
-    return "unsupported";
   }
+
+  // Switch failed or didn't take effect — some wallets reject unknown chains with
+  // codes other than 4902, so try adding the chain regardless of the error.
+  try {
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [target],
+    });
+    const after = await getWalletChainId(provider);
+    if (after && after.toLowerCase() === targetId) return "ok";
+  } catch {
+    // fall through — wallet can't reach the target chain
+  }
+  return "unsupported";
 }
 
 /**

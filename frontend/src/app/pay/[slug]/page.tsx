@@ -38,6 +38,7 @@ import {
   isMobileViewport,
 } from "@/lib/blip";
 import {
+  chainForWallet,
   connectWallet,
   detectWallets,
   ensureQuaiNetwork,
@@ -116,10 +117,10 @@ export default function PayPage({ params }: { params: Params }) {
     if (!blip) {
       throw new Error("Blip wallet not detected — reopen this page inside the Blip app.");
     }
-    const net = await ensureQuaiNetwork(blip.provider);
+    const net = await ensureQuaiNetwork(blip.provider, chainForWallet("blip"));
     if (net === "unsupported") {
       throw new Error(
-        "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in Blip and retry.",
+        "Blip couldn't switch to Quai mainnet (chain 9) — switch networks in Blip and retry.",
       );
     }
     const addr = await connectWallet(blip);
@@ -193,10 +194,11 @@ export default function PayPage({ params }: { params: Params }) {
       // different node/shard would sign a tx the chain silently rejects ("missing revert data").
       const wallet = getActiveWallet();
       if (wallet) {
-        const net = await ensureQuaiNetwork(wallet.provider);
+        const chain = chainForWallet(wallet.brand);
+        const net = await ensureQuaiNetwork(wallet.provider, chain);
         if (net === "unsupported") {
           throw new Error(
-            "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in your wallet and retry.",
+            `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — switch networks in your wallet and retry.`,
           );
         }
       }

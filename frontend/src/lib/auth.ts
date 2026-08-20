@@ -2,7 +2,12 @@
 
 import { BrowserProvider } from "quais";
 import { backendFetch } from "@/lib/payment";
-import { connectWallet, ensureQuaiNetwork, getActiveWallet } from "@/lib/wallets";
+import {
+  chainForWallet,
+  connectWallet,
+  ensureQuaiNetwork,
+  getActiveWallet,
+} from "@/lib/wallets";
 
 /**
  * Session management for the merchant dashboard.
@@ -85,7 +90,7 @@ export async function loginWithWallet(): Promise<LoginResult> {
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  await ensureQuaiNetwork(wallet.provider);
+  await ensureQuaiNetwork(wallet.provider, chainForWallet(wallet.brand));
   const address = await connectWallet(wallet);
 
   const provider = new BrowserProvider(wallet.provider);

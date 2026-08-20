@@ -15,16 +15,26 @@ import { useState } from "react";
 import { parseError } from "@/lib/utils";
 import { parseQuai } from "quais";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { WalletSelector } from "@/components/ui/wallet-selector";
 import {
-  MUSDQ_ADDRESS,
+  chainForWallet,
+  connectWallet,
+  detectWallets,
+  ensureQuaiNetwork,
+  storeWalletId,
+  type WalletBrand,
+} from "@/lib/wallets";
+import {
+  PAYWITHQUAI_MAINNET_ADDRESS,
   ZERO_ADDRESS,
+  isMainnetWallet,
   newOrderId,
   registerOrderBatch,
   createPaymentLink,
   fetchMyLinks,
+  resolveTokenAddress,
   type LinkInfo,
 } from "@/lib/payment";
+import { blipDeepLink } from "@/lib/blip";
 
 /** Exact decimal-string → smallest-unit conversion (no float math). */
 function toUnits(decimal: string, decimals: number): bigint {
@@ -43,6 +53,27 @@ function shortUrl(slug: string): string {
 
 const POOL_SIZE_OPTIONS = [5, 10, 20, 50];
 
+/** Wallet + network the merchant chooses when creating links. */
+const WALLET_OPTIONS: {
+  brand: WalletBrand;
+  name: string;
+  network: string;
+  hint: string;
+}[] = [
+  {
+    brand: "blip",
+    name: "Blip Pay",
+    network: "Quai mainnet (chain 9)",
+    hint: "Real QUAI — best for live stores. Orders register on mainnet.",
+  },
+  {
+    brand: "pelagus",
+    name: "Pelagus",
+    network: "Orchard testnet (chain 15000)",
+    hint: "Free testnet QUAI — best for testing without spending real funds.",
+  },
+];
+
 export default function LinksPage() {
   const [address, setAddress] = useState<string | null>(null);
   const [token, setToken] = useState<"quai" | "musdq">("quai");
@@ -59,7 +90,6 @@ export default function LinksPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [loadingLinks, setLoadingLinks] = useState(false);
 
-  const tokenAddress = token === "quai" ? ZERO_ADDRESS : MUSDQ_ADDRESS;
   const symbol = token === "quai" ? "QUAI" : "mUSDQ";
 
   // Load existing links from backend when merchant connects
@@ -73,6 +103,39 @@ export default function LinksPage() {
       // Not critical — just show empty
     } finally {
       setLoadingLinks(false);
+    }
+  };
+
+  /** Connect a specific wallet brand — Blip stays on mainnet, Pelagus on the testnet. */
+  const connectChoice = async (brand: WalletBrand) => {
+    setError(null);
+    const wallet = detectWallets().find((w) => w.brand === brand);
+    if (!wallet) {
+      if (brand === "blip") {
+        setError(
+          "Blip isn't open on this device. Tap “Open in Blip” to create the link inside the Blip app.",
+        );
+      } else {
+        setError(
+          "Pelagus isn't detected. Install the Pelagus extension and refresh this page.",
+        );
+      }
+      return;
+    }
+    try {
+      const chain = chainForWallet(brand);
+      const net = await ensureQuaiNetwork(wallet.provider, chain);
+      if (net === "unsupported") {
+        setError(
+          `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — switch networks in your wallet and retry.`,
+        );
+        return;
+      }
+      const addr = await connectWallet(wallet);
+      storeWalletId(wallet.id);
+      await selectAddress(addr);
+    } catch (err) {
+      setError(parseError(err) || `Couldn't connect ${wallet.name}.`);
     }
   };
 
@@ -99,6 +162,17 @@ export default function LinksPage() {
     setError(null);
     setLink(null);
 
+    // Resolve the contract addresses for the connected wallet's chain (Blip → mainnet).
+    let onChainToken: string;
+    try {
+      onChainToken = token === "quai" ? ZERO_ADDRESS : resolveTokenAddress();
+    } catch (err) {
+      setError(parseError(err) || "Failed to resolve token for this wallet's network.");
+      setBusy(false);
+      setRegistering(false);
+      return;
+    }
+
     let expiry = 0n;
     if (expiryHours.trim() !== "") {
       const hours = Number(expiryHours);
@@ -116,13 +190,13 @@ export default function LinksPage() {
       for (let i = 0; i < poolSize; i++) orderIds.push(newOrderId());
 
       // Register all orders on-chain in one atomic transaction
-      await registerOrderBatch(address, orderIds, tokenAddress, units, expiry);
+      await registerOrderBatch(address, orderIds, onChainToken, units, expiry);
       setRegistering(false);
 
       // Create the short link in the backend
       const created = await createPaymentLink({
         shopName: shopName.trim(),
-        tokenAddress,
+        tokenAddress: onChainToken,
         amount: units.toString(),
         amountDisplay: amount,
         symbol,
@@ -180,19 +254,59 @@ export default function LinksPage() {
               <div className="space-y-5">
                 {/* Wallet display */}
                 <div>
-                  <p className="mb-2 text-sm text-[#8b93a7]">
-                    Order from wallet
-                  </p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-sm text-[#8b93a7]">Order from wallet</p>
+                    <button
+                      onClick={() => setAddress(null)}
+                      className="text-xs font-medium text-[#8b93a7] transition hover:text-white"
+                    >
+                      Change wallet
+                    </button>
+                  </div>
                   <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3">
-                    <p className="break-all font-mono text-xs text-white">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          isMainnetWallet()
+                            ? "bg-[#C1ED00]/10 text-[#C1ED00]"
+                            : "bg-[#38bdf8]/10 text-[#38bdf8]"
+                        }`}
+                      >
+                        {isMainnetWallet()
+                          ? "Blip · mainnet (chain 9)"
+                          : "Pelagus · testnet (chain 15000)"}
+                      </span>
+                    </div>
+                    <p className="mt-2 break-all font-mono text-xs text-white">
                       {address}
                     </p>
                     <p className="mt-1 text-xs text-[#8b93a7]">
-                      Payments go to this wallet. A platform fee of 0.3% is
-                      deducted at settlement.
+                      Payments go to this wallet on{" "}
+                      {isMainnetWallet()
+                        ? "Quai mainnet"
+                        : "the Orchard testnet"}
+                      . A platform fee of 0.3% is deducted at settlement.
                     </p>
                   </div>
                 </div>
+
+                {isMainnetWallet() && !PAYWITHQUAI_MAINNET_ADDRESS && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-400/6 px-4 py-3">
+                    <AlertCircle
+                      size={14}
+                      className="mt-0.5 shrink-0 text-amber-300"
+                    />
+                    <p className="text-xs text-amber-300">
+                      Blip registers orders on Quai mainnet, but this deployment
+                      has no mainnet payment contract yet. Set{" "}
+                      <code className="font-mono">
+                        NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS
+                      </code>{" "}
+                      after deploying to mainnet, or use Pelagus (testnet) to
+                      keep testing for free.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   {/* Asset */}
@@ -392,14 +506,89 @@ export default function LinksPage() {
             ) : (
               <div>
                 <p className="mb-4 text-sm text-[#8b93a7]">
-                  Connect the wallet that will receive the payment — it signs
-                  the order registrations.
+                  Choose the wallet that will receive the payment — it signs the
+                  order registrations. Each wallet runs on its own network.
                 </p>
-                <WalletSelector
-                  connectedAddress={null}
-                  onConnected={(addr) => void selectAddress(addr)}
-                  label="Connect payout wallet"
-                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {WALLET_OPTIONS.map((opt) => {
+                    const detected = detectWallets().some(
+                      (w) => w.brand === opt.brand,
+                    );
+                    return (
+                      <div
+                        key={opt.brand}
+                        className={`rounded-xl border p-4 transition ${
+                          detected
+                            ? "border-white/7 hover:border-[#38bdf8]/50"
+                            : "border-white/7 opacity-70"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-white">
+                            {opt.name}
+                          </p>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                              opt.brand === "blip"
+                                ? "bg-[#C1ED00]/10 text-[#C1ED00]"
+                                : "bg-[#38bdf8]/10 text-[#38bdf8]"
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                detected
+                                  ? opt.brand === "blip"
+                                    ? "bg-[#C1ED00]"
+                                    : "bg-[#38bdf8]"
+                                  : "bg-[#4f5868]"
+                              }`}
+                            />
+                            {detected ? "Detected" : "Not detected"}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-xs text-[#8b93a7]">
+                          {opt.network}
+                        </p>
+                        <p className="mt-1 text-xs text-[#4f5868]">
+                          {opt.hint}
+                        </p>
+                        <div className="mt-3">
+                          {detected ? (
+                            <button
+                              onClick={() => void connectChoice(opt.brand)}
+                              className="inline-flex w-full items-center justify-center rounded-lg bg-[#38bdf8] px-4 py-2.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff]"
+                            >
+                              Use {opt.name}
+                            </button>
+                          ) : opt.brand === "blip" ? (
+                            <a
+                              href={blipDeepLink(
+                                typeof window !== "undefined"
+                                  ? window.location.href
+                                  : "https://quaimerchant.app",
+                              )}
+                              className="inline-flex w-full items-center justify-center rounded-lg border border-white/7 px-4 py-2.5 text-sm font-medium text-[#c9d4e0] transition hover:bg-white/6"
+                            >
+                              Open in Blip
+                            </a>
+                          ) : (
+                            <button
+                              onClick={() => void connectChoice(opt.brand)}
+                              className="inline-flex w-full items-center justify-center rounded-lg border border-white/7 px-4 py-2.5 text-sm font-medium text-[#c9d4e0] transition hover:bg-white/6"
+                            >
+                              Install Pelagus
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {error && (
+                  <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                    {error}
+                  </p>
+                )}
               </div>
             )}
           </section>

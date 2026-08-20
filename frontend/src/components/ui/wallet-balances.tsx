@@ -3,13 +3,17 @@
 import { useEffect, useState } from "react";
 import { BrowserProvider, Contract } from "quais";
 import { getActiveWallet } from "@/lib/wallets";
-import { getRpcProvider, MUSDQ_ADDRESS } from "@/lib/payment";
+import { getRpcProvider, resolveTokenAddress } from "@/lib/payment";
 import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
 
 // Minimal ERC20 ABI for balance checking
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
 ];
+
+function chainLabel(): string {
+  return getActiveWallet()?.brand === "blip" ? "mainnet holdings" : "testnet holdings";
+}
 
 export function WalletBalances() {
   const [quaiBalance, setQuaiBalance] = useState<string | null>(null);
@@ -52,7 +56,7 @@ export function WalletBalances() {
 
       // Fetch mUSDQ (6 decimals) — token read failures (e.g. wrong address) fail this row only.
       try {
-        const tokenContract = new Contract(MUSDQ_ADDRESS, ERC20_ABI, provider);
+        const tokenContract = new Contract(resolveTokenAddress(), ERC20_ABI, provider);
         const tokenBalance = await tokenContract.balanceOf(address);
         setMusdqBalance((Number(tokenBalance) / 1e6).toFixed(2));
       } catch (err) {
@@ -81,7 +85,7 @@ export function WalletBalances() {
           </div>
           <div>
             <h2 className="text-sm font-semibold">Wallet Balances</h2>
-            <p className="text-xs text-[#8b93a7]">Your current testnet holdings</p>
+            <p className="text-xs text-[#8b93a7]">Your current {chainLabel()}</p>
           </div>
         </div>
         <button

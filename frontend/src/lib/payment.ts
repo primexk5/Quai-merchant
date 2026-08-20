@@ -10,7 +10,7 @@ import {
   type Signer,
 } from "quais";
 import paywithquaiAbi from "./paywithquai.abi.json";
-import { ensureQuaiNetwork, getActiveWallet } from "./wallets";
+import { ensureQuaiNetwork, getActiveWallet, chainForWallet } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
@@ -19,7 +19,32 @@ export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
 // reads would always show 0. Overrides win when set.
 export const MUSDQ_ADDRESS =
   process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x0068f42D5Bd511363f52a1ade1ecD41B4bdD8F8e";
+// Blip runs on Quai mainnet (chain 9) — the merchant's own mainnet deployments.
+// Empty until the PayWithQuai + stablecoin contracts are deployed to mainnet.
+export const PAYWITHQUAI_MAINNET_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS;
+export const MUSDQ_MAINNET_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_MAINNET_ADDRESS;
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+
+/** True when the connected wallet is Blip — which operates on Quai mainnet, not the testnet. */
+export function isMainnetWallet(): boolean {
+  return getActiveWallet()?.brand === "blip";
+}
+
+/** PayWithQuai address for the connected wallet's chain (Blip → mainnet, others → testnet). */
+export function resolvePayAddress(): string {
+  if (isMainnetWallet()) {
+    return requireAddress("NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS", PAYWITHQUAI_MAINNET_ADDRESS);
+  }
+  return requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
+}
+
+/** Stablecoin address for the connected wallet's chain (Blip → mainnet, others → testnet). */
+export function resolveTokenAddress(): string {
+  if (isMainnetWallet()) {
+    return requireAddress("NEXT_PUBLIC_MUSDQ_MAINNET_ADDRESS", MUSDQ_MAINNET_ADDRESS);
+  }
+  return requireAddress("NEXT_PUBLIC_MUSDQ_ADDRESS", MUSDQ_ADDRESS);
+}
 
 /** Resolve a NEXT_PUBLIC_* contract address with a clear failure instead of the cryptic
  *  "unsupported addressable value (argument="target", value=null)" thrown by `new Contract(...)`
@@ -40,9 +65,18 @@ function requireAddress(name: string, value: string | undefined): string {
 }
 
 /** One provider reused across polls — avoids re-doing DNS/TLS handshakes on every status check,
- *  which matters a lot on slow or mobile networks. */
+ *  which matters a lot on slow or mobile networks. Blip (mainnet) reads go to the mainnet RPC,
+ *  everything else to the Orchard testnet RPC. */
 let rpcProvider: JsonRpcProvider | undefined;
+let rpcProviderMainnet: JsonRpcProvider | undefined;
 export function getRpcProvider(): JsonRpcProvider {
+  if (isMainnetWallet()) {
+    if (!rpcProviderMainnet) {
+      const url = process.env.NEXT_PUBLIC_RPC_MAINNET_URL ?? "https://rpc.quai.network/cyprus1";
+      rpcProviderMainnet = new JsonRpcProvider(url, undefined, { usePathing: true });
+    }
+    return rpcProviderMainnet;
+  }
   if (!rpcProvider) {
     const url = process.env.NEXT_PUBLIC_RPC_URL;
     if (!url) {
@@ -81,7 +115,7 @@ export async function getRevertReason(
   opts: { value?: bigint; token?: string; from: string },
 ): Promise<string | null> {
   try {
-    const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
+    const payAddress = resolvePayAddress();
     const token = opts.token;
     const isNative = !token || token.toLowerCase() === ZERO_ADDRESS.toLowerCase();
     const method = isNative ? "payOrderNative" : "payOrder";
@@ -205,7 +239,8 @@ async function getSigner(): Promise<Signer> {
   return provider.getSigner();
 }
 
-/** Puts the connected wallet on the app's chain (Quai Orchard, 15000) and returns a signer.
+/** Puts the connected wallet on the chain its brand operates on — Blip is a mainnet wallet
+ *  (chain 9), Pelagus and the rest target Quai Orchard (15000) — and returns a signer.
  *  Without this, a wallet on its default chain broadcasts into a mempool the app never sees,
  *  and the registration would hang forever waiting for a receipt. */
 async function getSignerOnNetwork(): Promise<Signer> {
@@ -213,10 +248,12 @@ async function getSignerOnNetwork(): Promise<Signer> {
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  const net = await ensureQuaiNetwork(wallet.provider);
+  const chain = chainForWallet(wallet.brand);
+  const net = await ensureQuaiNetwork(wallet.provider, chain);
   if (net === "unsupported") {
     throw new Error(
-      "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in your wallet and retry.",
+      `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — ` +
+        `switch networks in your wallet and retry.`,
     );
   }
   return new BrowserProvider(wallet.provider).getSigner();
@@ -242,7 +279,7 @@ async function waitForTxReceipt(hash: string, timeoutMs = 60_000): Promise<strin
 
 function getContract(signer?: Signer): Contract {
   return new Contract(
-    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    resolvePayAddress(),
     paywithquaiAbi,
     signer,
   );
@@ -315,7 +352,7 @@ export async function payOrder(
   amount: bigint,
 ): Promise<string> {
   const signer = await getSigner();
-  const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
+  const payAddress = resolvePayAddress();
   const contract = getContract(signer);
   try {
     const approveTx = await new Contract(token, [
@@ -398,7 +435,7 @@ export async function isSettledOnChain(
   orderId: string,
 ): Promise<boolean> {
   const contract = new Contract(
-    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    resolvePayAddress(),
     paywithquaiAbi,
     getRpcProvider(),
   );
@@ -425,7 +462,7 @@ export async function getOrderOnChain(
   orderId: string,
 ): Promise<OnChainOrder | null> {
   const contract = new Contract(
-    requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS),
+    resolvePayAddress(),
     paywithquaiAbi,
     getRpcProvider(),
   );
