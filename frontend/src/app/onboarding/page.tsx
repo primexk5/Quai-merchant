@@ -43,7 +43,7 @@ export default function OnboardingPage() {
   const [walletTab, setWalletTab] = useState<"blip" | "wallet">("blip");
   const [blipConnecting, setBlipConnecting] = useState(false);
 
-  const { insideBlip, isMobile, blipLink } = useBlipContext();
+  const { insideBlip, isMobile, blipLink, blipDeep } = useBlipContext();
 
   const complete = async () => {
     if (!address) return;
@@ -271,20 +271,28 @@ export default function OnboardingPage() {
                     <div className="flex flex-col items-center px-5 py-5">
                       {isMobile ? (
                         <>
-                          <p className="mb-4 text-center text-sm text-[#8b93a7]">Open Blip on your phone, navigate to this page, then connect.</p>
-                          <a href={blipLink} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-2.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]">
+                          <p className="mb-4 text-center text-sm text-[#8b93a7]">
+                            Opens this page inside the Blip app — your wallet connects automatically.
+                          </p>
+                          <a href={blipDeep} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-2.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]">
                             <Smartphone size={14} />
                             Open in Blip
                           </a>
+                          <p className="mt-3 text-center text-xs text-[#4f5868]">
+                            Not opening?{" "}
+                            <a href={blipLink} className="text-[#C1ED00] hover:underline">
+                              Use the web link
+                            </a>
+                          </p>
                         </>
                       ) : (
                         <>
                           <div className="mb-3 rounded-2xl bg-white p-3 shadow-md ring-4 ring-[#C1ED00]/20">
-                            <QRCode value={blipLink} size={132} level="M" fgColor="#0F1116" />
+                            <QRCode value={blipDeep} size={132} level="M" fgColor="#0F1116" />
                           </div>
                           <p className="mb-1 text-sm font-medium text-white">Scan with Blip</p>
                           <p className="mb-4 text-center text-xs text-[#8b93a7]">
-                            Opens Blip on your phone → navigate to this page → connect your wallet.
+                            Opens this page inside the Blip app on your phone — connect in one tap.
                           </p>
                           <a href={blipLink} className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#C1ED00]/25 bg-[#C1ED00]/5 py-2.5 text-sm font-medium text-[#C1ED00] transition hover:border-[#C1ED00]/50">
                             <Smartphone size={14} />

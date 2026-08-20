@@ -39,6 +39,11 @@ export function blipBrowserLink(pageUrl: string): string {
   return `https://blippay.me/browser?url=${encodeURIComponent(pageUrl)}`;
 }
 
+/** Direct deep link into Blip's in-app browser — skips the blippay.me landing page. */
+export function blipDeepLink(pageUrl: string): string {
+  return `blip://browser?url=${encodeURIComponent(pageUrl)}`;
+}
+
 /**
  * Hook to safely retrieve Blip environment variables on the client
  * without causing React hydration mismatches between Server/Client renders.
@@ -47,15 +52,25 @@ export function useBlipContext() {
   const [insideBlip, setInsideBlip] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [blipLink, setBlipLink] = useState("https://blippay.me");
+  const [blipDeep, setBlipDeep] = useState("https://blippay.me");
 
   useEffect(() => {
-    void (async () => {
-      await Promise.resolve();
+    let attempts = 0;
+    const check = () => {
       setInsideBlip(isInsideBlipBrowser());
       setIsMobile(isMobileViewport());
       setBlipLink(blipBrowserLink(window.location.href));
-    })();
+      setBlipDeep(blipDeepLink(window.location.href));
+    };
+    check();
+    // Blip's in-app browser can inject window.quai a moment after first paint —
+    // keep checking so the "connect in one tap" panel appears instead of the loop.
+    const timer = setInterval(() => {
+      check();
+      if (isInsideBlipBrowser() || ++attempts > 10) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  return { insideBlip, isMobile, blipLink };
+  return { insideBlip, isMobile, blipLink, blipDeep };
 }

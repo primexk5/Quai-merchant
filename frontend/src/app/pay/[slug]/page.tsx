@@ -33,7 +33,9 @@ import {
 } from "@/lib/payment";
 import {
   blipBrowserLink,
+  blipDeepLink,
   isInsideBlipBrowser,
+  isMobileViewport,
 } from "@/lib/blip";
 import {
   connectWallet,
@@ -91,25 +93,44 @@ export default function PayPage({ params }: { params: Params }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Blip's in-app browser can inject window.quai a moment after first paint — keep polling for
+  // a few seconds so the "Pay with Blip" panel appears instead of the "Open in Blip" loop.
+  useEffect(() => {
+    if (insideBlip || connected || stage.name !== "ready") return;
+    let attempts = 0;
+    const timer = setInterval(() => {
+      if (++attempts > 10) {
+        clearInterval(timer);
+        return;
+      }
+      if (isInsideBlipBrowser()) {
+        clearInterval(timer);
+        setInsideBlip(true);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [insideBlip, connected, stage.name]);
+
+  const connectBlip = useCallback(async (): Promise<void> => {
+    const blip = detectWallets().find((w) => w.brand === "blip");
+    if (!blip) {
+      throw new Error("Blip wallet not detected — reopen this page inside the Blip app.");
+    }
+    const net = await ensureQuaiNetwork(blip.provider);
+    if (net === "unsupported") {
+      throw new Error(
+        "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in Blip and retry.",
+      );
+    }
+    const addr = await connectWallet(blip);
+    storeWalletId(blip.id);
+    setConnected(addr);
+  }, []);
 
   useEffect(() => {
     if (!insideBlip || connected || stage.name !== "ready") return;
-    const blip = detectWallets().find((w) => w.brand === "blip");
-    if (!blip) return;
-    void (async () => {
-      try {
-        // Put Blip on the app's network first — its default RPC can be a different node/shard
-        // where the contracts don't exist and every call fails with "missing revert data".
-        const net = await ensureQuaiNetwork(blip.provider);
-        if (net === "unsupported") return;
-        const addr = await connectWallet(blip);
-        storeWalletId(blip.id);
-        setConnected(addr);
-      } catch {
-        // ignore — user can still connect manually via the wallet tab
-      }
-    })();
-  }, [insideBlip, connected, stage.name]);
+    void connectBlip().catch(() => undefined);
+  }, [insideBlip, connected, stage.name, connectBlip]);
 
   // Load link metadata
   useEffect(() => {
@@ -466,12 +487,27 @@ export default function PayPage({ params }: { params: Params }) {
                               </button>
                             </>
                           ) : (
-                            <div className="flex items-center justify-center gap-2 py-4 text-sm text-[#8b93a7]">
-                              <Loader2
-                                size={16}
-                                className="animate-spin text-[#C1ED00]"
-                              />
-                              Connecting Blip wallet…
+                            <div className="flex flex-col items-center gap-3 py-4">
+                              <div className="flex items-center justify-center gap-2 text-sm text-[#8b93a7]">
+                                <Loader2
+                                  size={16}
+                                  className="animate-spin text-[#C1ED00]"
+                                />
+                                Connecting Blip wallet…
+                              </div>
+                              <button
+                                onClick={() =>
+                                  void connectBlip().catch((err) =>
+                                    setStage({
+                                      name: "error",
+                                      message: parseError(err),
+                                    }),
+                                  )
+                                }
+                                className="text-xs text-[#C1ED00] hover:underline"
+                              >
+                                Retry connection
+                              </button>
                             </div>
                           )}
                         </div>
@@ -533,15 +569,38 @@ export default function PayPage({ params }: { params: Params }) {
                             pageUrl && (
                               <div className="flex flex-col items-center p-6">
                                 <p className="mb-5 text-center text-xs leading-5 text-[#8b93a7]">
-                                  Opens this checkout inside the Blip app.
+                                  Opens this checkout inside the Blip app — your
+                                  wallet connects automatically.
                                 </p>
                                 <a
-                                  href={blipBrowserLink(pageUrl)}
+                                  href={
+                                    isMobileViewport()
+                                      ? blipDeepLink(pageUrl)
+                                      : blipBrowserLink(pageUrl)
+                                  }
                                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00]"
                                 >
                                   <Smartphone size={15} />
                                   Open in Blip app
                                 </a>
+                                <p className="mt-3 text-center text-xs text-[#4f5868]">
+                                  {isMobileViewport() ? (
+                                    <>
+                                      Not opening?{" "}
+                                      <a
+                                        href={blipBrowserLink(pageUrl)}
+                                        className="text-[#C1ED00] hover:underline"
+                                      >
+                                        Use the web link
+                                      </a>
+                                    </>
+                                  ) : (
+                                    <>
+                                      Scan the QR above with your phone to pay
+                                      in Blip.
+                                    </>
+                                  )}
+                                </p>
                                 <p className="mt-3 text-center text-xs text-[#4f5868]">
                                   Don&apos;t have Blip?{" "}
                                   <a
