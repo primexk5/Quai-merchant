@@ -22,6 +22,8 @@ import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import {
   ZERO_ADDRESS,
+  getOrderOnChain,
+  orderPaymentError,
   payOrder,
   payOrderNative,
   waitForOnChainConfirmation,
@@ -36,6 +38,7 @@ import {
 import {
   connectWallet,
   detectWallets,
+  ensureQuaiNetwork,
   getActiveWallet,
   storeWalletId,
 } from "@/lib/wallets";
@@ -93,9 +96,19 @@ export default function PayPage({ params }: { params: Params }) {
     if (!insideBlip || connected || stage.name !== "ready") return;
     const blip = detectWallets().find((w) => w.brand === "blip");
     if (!blip) return;
-    void connectWallet(blip)
-      .then((addr) => { storeWalletId(blip.id); setConnected(addr); })
-      .catch(() => undefined);
+    void (async () => {
+      try {
+        // Put Blip on the app's network first — its default RPC can be a different node/shard
+        // where the contracts don't exist and every call fails with "missing revert data".
+        const net = await ensureQuaiNetwork(blip.provider);
+        if (net === "unsupported") return;
+        const addr = await connectWallet(blip);
+        storeWalletId(blip.id);
+        setConnected(addr);
+      } catch {
+        // ignore — user can still connect manually via the wallet tab
+      }
+    })();
   }, [insideBlip, connected, stage.name]);
 
   // Load link metadata
@@ -155,6 +168,18 @@ export default function PayPage({ params }: { params: Params }) {
     }
 
     try {
+      // Ensure the wallet is on the app's network before anything else — a wallet on a
+      // different node/shard would sign a tx the chain silently rejects ("missing revert data").
+      const wallet = getActiveWallet();
+      if (wallet) {
+        const net = await ensureQuaiNetwork(wallet.provider);
+        if (net === "unsupported") {
+          throw new Error(
+            "Your wallet couldn't switch to Quai Orchard (chain 15000) — switch networks in your wallet and retry.",
+          );
+        }
+      }
+
       // Step 1: Claim an orderId from the pool
       setStage({ name: "claiming" });
       const claim = await claimOrderFromLink(slug, connected);
@@ -163,15 +188,27 @@ export default function PayPage({ params }: { params: Params }) {
       setClaimedOrderId(orderId);
       setClaimedMerchant(merchant);
 
-      // Step 2: Pay the order — one wallet popup
-      setStage({ name: "paying", step: "Awaiting wallet approval…" });
+      // Step 2: Sanity-check the order on-chain BEFORE the wallet popup, so a call that would
+      // certainly revert never wastes the customer's approval.
+      setStage({ name: "paying", step: "Checking order…" });
       const amount = BigInt(link.amount);
+      const onChainOrder = await getOrderOnChain(merchant, orderId);
+      const precheckError = orderPaymentError(
+        onChainOrder,
+        connected,
+        amount,
+        isNative(link),
+      );
+      if (precheckError) throw new Error(precheckError);
+
+      // Step 3: Pay the order — one wallet popup
+      setStage({ name: "paying", step: "Awaiting wallet approval…" });
       const hash = isNative(link)
         ? await payOrderNative(merchant, orderId, amount)
         : await payOrder(merchant, orderId, link.tokenAddress, amount);
 
 
-      // Step 3: Wait for on-chain confirmation (instant — no webhook wait)
+      // Step 4: Wait for on-chain confirmation (instant — no webhook wait)
       setStage({ name: "awaiting", status: "Waiting for block confirmation…" });
       const settled = await waitForOnChainConfirmation(
         merchant,

@@ -1,6 +1,7 @@
 import {
   BrowserProvider,
   Contract,
+  Interface,
   JsonRpcProvider,
   formatQuai,
   getAddress,
@@ -13,10 +14,11 @@ import { getActiveWallet } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
-// Stablecoin deployed alongside PayWithQuai (contracts/deployments/cyprus1.json). Falls back so
-// the app keeps working when NEXT_PUBLIC_MUSDQ_ADDRESS is unset — overrides win when set.
+// Stablecoin used on Orchard testnet — the funded deployment (contracts README). The newer
+// deployments/<network>.json copy was deployed but never minted (totalSupply 0), so balance
+// reads would always show 0. Overrides win when set.
 export const MUSDQ_ADDRESS =
-  process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x003fafB5126a5296c6edC7C23De55daf2E84B503";
+  process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x0068f42D5Bd511363f52a1ade1ecD41B4bdD8F8e";
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 
 /** Resolve a NEXT_PUBLIC_* contract address with a clear failure instead of the cryptic
@@ -40,7 +42,7 @@ function requireAddress(name: string, value: string | undefined): string {
 /** One provider reused across polls — avoids re-doing DNS/TLS handshakes on every status check,
  *  which matters a lot on slow or mobile networks. */
 let rpcProvider: JsonRpcProvider | undefined;
-function getRpcProvider(): JsonRpcProvider {
+export function getRpcProvider(): JsonRpcProvider {
   if (!rpcProvider) {
     const url = process.env.NEXT_PUBLIC_RPC_URL;
     if (!url) {
@@ -49,6 +51,92 @@ function getRpcProvider(): JsonRpcProvider {
     rpcProvider = new JsonRpcProvider(url, undefined, { usePathing: true });
   }
   return rpcProvider;
+}
+
+const payInterface = new Interface(paywithquaiAbi);
+
+/** Friendly copy for the custom errors the PayWithQuai contract can throw. */
+const REVERT_MESSAGES: Record<string, string> = {
+  OrderNotFound: "The order was not found on-chain — it may not have been registered for this link yet.",
+  OrderAlreadySettled: "This order was already paid.",
+  OrderExpired: "This payment link has expired.",
+  WrongPayer: "This order is reserved for a different wallet.",
+  WrongPaymentPath: "Payment method doesn't match the order's currency (QUAI vs token).",
+  IncorrectNativeValue: "The amount sent doesn't match the order amount.",
+  NativeTransferFailed: "The network rejected the payout transfer — please try again.",
+  TokenNotAccepted: "The token isn't accepted by the payment contract.",
+  ZeroAmount: "The order amount must be greater than zero.",
+  InvalidExpiry: "The order expiry is invalid.",
+  OrderAlreadyExists: "This order was already registered.",
+  EnforcedPause: "Payments are temporarily paused — try again in a moment.",
+  ReentrancyGuardReentrantCall: "Transaction reentrancy blocked — please try again.",
+};
+
+/** Replay the failing payment call at the current block to decode the real revert reason.
+ *  Quai RPCs often return empty revert data for a mined failure ("missing revert data"), so we
+ *  re-run eth_call to recover and decode the actual error before it reaches the UI. */
+export async function getRevertReason(
+  merchant: string,
+  orderId: string,
+  opts: { value?: bigint; token?: string; from: string },
+): Promise<string | null> {
+  try {
+    const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
+    const token = opts.token;
+    const isNative = !token || token.toLowerCase() === ZERO_ADDRESS.toLowerCase();
+    const method = isNative ? "payOrderNative" : "payOrder";
+    const data = payInterface.encodeFunctionData(method, [merchant, orderId]);
+    await getRpcProvider().call({
+      to: payAddress,
+      from: opts.from,
+      data,
+      ...(isNative ? { value: opts.value ?? 0n } : {}),
+    });
+    return null; // the call would succeed now — the revert no longer reproduces
+  } catch (err) {
+    const e = err as Record<string, unknown>;
+    const raw = e.data ?? (e.error as { data?: unknown } | undefined)?.data;
+    if (typeof raw === "string" && raw.startsWith("0x")) {
+      try {
+        const decoded = payInterface.parseError(raw);
+        const name = decoded?.name ?? "";
+        if (name) {
+          return REVERT_MESSAGES[name] ?? `${name} (${raw.slice(0, 10)}…)`;
+        }
+      } catch {
+        // fall through to message extraction
+      }
+    }
+    const reason = typeof e.reason === "string" ? e.reason : "";
+    if (reason && reason !== "missing revert data") return reason;
+    return null;
+  }
+}
+
+/** Validate a payment against the on-chain order BEFORE broadcasting, so the wallet popup is
+ *  never wasted on a call that will certainly revert. Returns an error message or null. */
+export function orderPaymentError(
+  order: OnChainOrder | null,
+  payerAddress: string,
+  amount: bigint,
+  isNative: boolean,
+): string | null {
+  if (!order) return "Order not found on-chain — it may not be registered for this link yet.";
+  if (!order.exists) return REVERT_MESSAGES.OrderNotFound;
+  if (order.settled) return REVERT_MESSAGES.OrderAlreadySettled;
+  if (order.expiry > 0n && BigInt(Math.floor(Date.now() / 1000)) > order.expiry) {
+    return REVERT_MESSAGES.OrderExpired;
+  }
+  const orderIsNative = order.token.toLowerCase() === ZERO_ADDRESS.toLowerCase();
+  if (isNative !== orderIsNative) return REVERT_MESSAGES.WrongPaymentPath;
+  if (order.amount !== amount) return REVERT_MESSAGES.IncorrectNativeValue;
+  if (
+    order.expectedPayer !== ZERO_ADDRESS &&
+    order.expectedPayer.toLowerCase() !== payerAddress.toLowerCase()
+  ) {
+    return REVERT_MESSAGES.WrongPayer;
+  }
+  return null;
 }
 
 /** Comma-separated fallback list, e.g. "http://localhost:8080,https://quai-merchant.onrender.com".
@@ -174,12 +262,22 @@ export async function payOrder(
   const signer = await getSigner();
   const payAddress = requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
   const contract = getContract(signer);
-  await (await new Contract(token, [
-    "function approve(address spender, uint256 amount) returns (bool)",
-  ], signer).approve(payAddress, amount)).wait();
-  const tx = await contract.payOrder(merchant, orderId);
-  const receipt = await tx.wait();
-  return receipt.hash;
+  try {
+    await (await new Contract(token, [
+      "function approve(address spender, uint256 amount) returns (bool)",
+    ], signer).approve(payAddress, amount)).wait();
+    const tx = await contract.payOrder(merchant, orderId);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  } catch (err) {
+    const reason = await getRevertReason(merchant, orderId, {
+      token,
+      value: amount,
+      from: await signer.getAddress(),
+    }).catch(() => null);
+    if (reason) throw new Error(reason);
+    throw err;
+  }
 }
 
 /** Customer settles a native QUAI order. Returns the tx receipt. */
@@ -190,11 +288,20 @@ export async function payOrderNative(
 ): Promise<string> {
   const signer = await getSigner();
   const value = typeof amount === "bigint" ? amount : parseQuai(amount);
-  const tx = await getContract(signer).payOrderNative(merchant, orderId, {
-    value,
-  });
-  const receipt = await tx.wait();
-  return receipt.hash;
+  try {
+    const tx = await getContract(signer).payOrderNative(merchant, orderId, {
+      value,
+    });
+    const receipt = await tx.wait();
+    return receipt.hash;
+  } catch (err) {
+    const reason = await getRevertReason(merchant, orderId, {
+      value,
+      from: await signer.getAddress(),
+    }).catch(() => null);
+    if (reason) throw new Error(reason);
+    throw err;
+  }
 }
 
 /** Cryptographically random order id — Math.random()/timestamps are predictable, and the id is

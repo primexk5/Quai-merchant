@@ -61,6 +61,19 @@ export function parseError(err: unknown): string {
     return "Could not estimate gas — the order may be expired or already settled.";
   }
   if (code === "CALL_EXCEPTION" || lowerMsg.includes("execution reverted") || lowerMsg.includes("reverted")) {
+    // Decoded custom errors (e.g. "OrderExpired", "IncorrectNativeValue") become friendly text.
+    const known = {
+      ordernotfound: "The order was not found on-chain — it may not be registered for this link yet.",
+      orderalreadysettled: "This order was already paid.",
+      orderexpired: "This payment link has expired.",
+      wrongpayer: "This order is reserved for a different wallet.",
+      wrongpaymentpath: "Payment method doesn't match the order's currency.",
+      incorrectnativevalue: "The amount sent doesn't match the order amount.",
+      nativetransferfailed: "The network rejected the payout transfer — please try again.",
+    };
+    for (const [key, text] of Object.entries(known)) {
+      if (lowerMsg.includes(key)) return text;
+    }
     const why = reason || shortMessage;
     return why ? `Transaction reverted: ${why}` : "Transaction reverted by the contract.";
   }

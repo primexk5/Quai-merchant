@@ -3,10 +3,8 @@
 import { useEffect, useState } from "react";
 import { BrowserProvider, Contract } from "quais";
 import { getActiveWallet } from "@/lib/wallets";
+import { getRpcProvider, MUSDQ_ADDRESS } from "@/lib/payment";
 import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
-
-// The mock stablecoin address used on Orchard Testnet (contracts/deployments/cyprus1.json).
-const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x003fafB5126a5296c6edC7C23De55daf2E84B503";
 
 // Minimal ERC20 ABI for balance checking
 const ERC20_ABI = [
@@ -34,10 +32,15 @@ export function WalletBalances() {
 
     setError(null);
     try {
-      const provider = new BrowserProvider(wallet.provider);
-      const accounts = await provider.listAccounts();
+      // Resolve the account from the wallet (no network read), then read balances through the
+      // app's canonical RPC — the network the relayer + contracts actually run on. The wallet's
+      // injected provider can sit on a different node/shard, where eth_call returns no data and
+      // balance reads fail with "missing revert data".
+      const accounts = await new BrowserProvider(wallet.provider).listAccounts();
       if (!accounts.length) throw new Error("Wallet locked");
       const address = accounts[0].address;
+
+      const provider = getRpcProvider();
 
       // Fetch Native QUAI — keep it independent so a failing token read doesn't hide it.
       try {
