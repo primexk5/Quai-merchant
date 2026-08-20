@@ -148,8 +148,25 @@ export const BACKEND_URLS = BACKEND_URL.split(",")
 /** HTTP statuses that mean the host is up but failing — try the next backend URL. */
 const FAILOVER_STATUSES = new Set([502, 503, 504]);
 
+/** Whether a fetch failure is a transient network problem (not an HTTP status or an abort).
+ *  Browsers throw these on flaky mobile links (e.g. `net::ERR_NETWORK_CHANGED`). */
+function isTransientNetworkError(err: unknown): boolean {
+  if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) {
+    return false;
+  }
+  return (
+    err instanceof TypeError ||
+    (typeof err === "object" && err !== null && (err as { message?: unknown }).message === "Failed to fetch")
+  );
+}
+
 /** Fetch against the first reachable backend URL. Network failures and 502/503/504 fall
  *  through to the next candidate; other HTTP responses are returned as-is.
+ *
+ *  Transient network errors (ERR_NETWORK_CHANGED and friends) get one immediate retry so a
+ *  connection blip on a phone doesn't kill a payment flow. POSTs are retried too — the backend
+ *  endpoints are safe against doubles (claim has a per-wallet window that returns the same
+ *  orderId; links/orders are idempotent by construction).
  *
  *  `credentials: "include"` makes the browser send (and store) the HttpOnly session cookie the
  *  backend issues at login — cross-origin, thanks to the backend's CORS + SameSite settings.
@@ -157,17 +174,23 @@ const FAILOVER_STATUSES = new Set([502, 503, 504]);
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
   let lastResponse: Response | undefined;
-  for (const base of BACKEND_URLS) {
-    try {
-      const res = await fetch(`${base}${path}`, { credentials: "include", ...init });
-      if (FAILOVER_STATUSES.has(res.status)) {
-        lastResponse = res;
-        continue;
+  const attempts = 2;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    for (const base of BACKEND_URLS) {
+      try {
+        const res = await fetch(`${base}${path}`, { credentials: "include", ...init });
+        if (FAILOVER_STATUSES.has(res.status)) {
+          lastResponse = res;
+          continue;
+        }
+        return res;
+      } catch (err) {
+        lastError = err;
       }
-      return res;
-    } catch (err) {
-      lastError = err;
     }
+    // One quiet retry only for transient network blips — not for HTTP errors or aborts.
+    if (!isTransientNetworkError(lastError)) break;
+    await new Promise((r) => setTimeout(r, 600));
   }
   if (lastResponse) return lastResponse;
   throw lastError instanceof Error ? lastError : new Error("backend unreachable");

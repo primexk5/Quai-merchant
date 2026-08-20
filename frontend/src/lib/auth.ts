@@ -134,21 +134,28 @@ export async function loginWithWallet(): Promise<LoginResult> {
   return { token: body.token, expiresAt: body.expiresAt ?? 0, merchant: body.merchant };
 }
 
+export type SessionStatus =
+  | { status: "ok"; merchant: AuthMerchant }
+  | { status: "expired" }
+  | { status: "unreachable" };
+
 /**
  * After a reload the in-memory token is gone, but the HttpOnly session cookie still authenticates
- * the merchant. Re-checks with the backend; returns the merchant when the cookie session is valid.
+ * the merchant. Re-checks with the backend so the dashboard can tell a live session from an
+ * expired/revoked one (401) or a backend that's simply unreachable (network error).
  */
-export async function restoreSession(): Promise<AuthMerchant | null> {
-  if (!hasMarkerCookie()) return null;
+export async function checkSession(): Promise<SessionStatus> {
+  if (!hasMarkerCookie()) return { status: "expired" };
   try {
     const res = await backendFetch("/v1/me", { signal: AbortSignal.timeout(10_000) });
     if (res.ok) {
-      return (await res.json()) as AuthMerchant;
+      return { status: "ok", merchant: (await res.json()) as AuthMerchant };
     }
+    return { status: "expired" };
   } catch {
     // backend unreachable — leave the marker; the dashboard shows its own error
+    return { status: "unreachable" };
   }
-  return null;
 }
 
 /** Clears the local session and invalidates it server-side (cookie + token). */

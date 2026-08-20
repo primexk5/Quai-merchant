@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/logo";
-import { getStoredAddress, isLoggedIn, logout, restoreSession } from "@/lib/auth";
+import { getStoredAddress, isLoggedIn, logout, checkSession } from "@/lib/auth";
 
 function shortAddress(address: string | null): string {
   if (!address) return "Not signed in";
@@ -63,12 +63,20 @@ export function DashboardShell({
   const [sessionReady, setSessionReady] = useState(false);
 
   // Re-validate the HttpOnly cookie session after a reload (in-memory token is gone).
+  // Expired or revoked sessions (backend 401) are signed out and sent to /login.
   useEffect(() => {
     if (!isLoggedIn()) {
       router.replace("/login");
       return;
     }
-    void restoreSession().finally(() => setSessionReady(true));
+    void checkSession()
+      .then((s) => {
+        if (s.status === "expired") {
+          void logout();
+          router.replace("/login");
+        }
+      })
+      .finally(() => setSessionReady(true));
   }, [router]);
 
   const signOut = async () => {

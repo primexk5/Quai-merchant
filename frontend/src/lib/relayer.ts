@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { parseError } from "@/lib/utils";
 import { formatQuai, formatUnits } from "quais";
 import { backendFetch } from "@/lib/payment";
-import { getSessionToken, isLoggedIn } from "@/lib/auth";
+import { getSessionToken, isLoggedIn, logout } from "@/lib/auth";
 
 export interface DeliveryData {
   merchant: string;
@@ -55,12 +56,21 @@ function relayerFetch(path: string, init?: RequestInit): Promise<Response> {
   return backendFetch(path, init);
 }
 
+/** Error carrying the HTTP status so callers can react to 401 (expired session) specially. */
+class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function adminGet<T>(path: string): Promise<T> {
   const res = await relayerFetch(path, {
     headers: adminHeaders(),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`backend error ${res.status}`);
+  if (!res.ok) throw new HttpError(res.status, `backend error ${res.status}`);
   return (await res.json()) as T;
 }
 
@@ -76,7 +86,7 @@ export async function adminPatch<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     const detail = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(detail?.error ?? `backend error ${res.status}`);
+    throw new HttpError(res.status, detail?.error ?? `backend error ${res.status}`);
   }
   return (await res.json()) as T;
 }
@@ -90,6 +100,7 @@ export function useRelayerData(intervalMs = 8000) {
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const refresh = useCallback(async () => {
     try {
@@ -111,11 +122,21 @@ export function useRelayerData(intervalMs = 8000) {
       }
       setError(null);
     } catch (err) {
-      setError(parseError(err));
+      // Session expired/revoked while the dashboard is open — sign out and go to /login.
+      if (err instanceof HttpError && err.status === 401) {
+        void logout();
+        router.replace("/login");
+        return;
+      }
+      // Transient network blips (ERR_NETWORK_CHANGED, Wi-Fi↔mobile) are expected on phones —
+      // keep the last data and only surface an error when there's nothing to show yet.
+      if (deliveries.length === 0 && merchants.length === 0) {
+        setError(parseError(err));
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [router, deliveries.length, merchants.length]);
 
   useEffect(() => {
     const timer = setInterval(() => void refresh(), intervalMs);
