@@ -181,7 +181,7 @@ export default function Home() {
           >
             <div className="overflow-hidden rounded-[18px] border border-white/4">
               <Image 
-                src="/dashboard.png" 
+                src="/image.png" 
                 alt="Dashboard Screenshot" 
                 width={1200} 
                 height={675} 
