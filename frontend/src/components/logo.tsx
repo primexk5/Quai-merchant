@@ -9,10 +9,10 @@ export function Logo({
 }) {
   return (
     <Image
-      src="/logo.jpeg"
+      src="/new_logo.png"
       alt="QUAIMerchant logo"
-      width={1024}
-      height={1024}
+      width={512}
+      height={512}
       priority={priority}
       className={`rounded-lg object-cover ${className}`}
     />

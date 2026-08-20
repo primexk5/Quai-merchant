@@ -8,16 +8,32 @@ import { Logo } from "@/components/logo";
 import {
   ArrowRight,
   Check,
+  CheckCircle,
   ChevronRight,
   CircleDollarSign,
+  Clock,
   Code2,
   Copy,
   ExternalLink,
+  Globe,
+  Hash,
   Link as LinkIcon,
   Menu,
+  MessageCircle,
+  Package,
   QrCode,
+  Send,
   ShieldCheck,
+  ShoppingBag,
+  ShoppingCart,
   Smartphone,
+  Store,
+  Tag,
+  TrendingUp,
+  Unlock,
+  Users,
+  Wallet,
+  X,
   Zap,
 } from "lucide-react";
 
@@ -440,6 +456,411 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Problems Section */}
+      <section id="problems" className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="mb-16"
+        >
+          <p className="text-sm font-medium text-sky-400 mb-4">THE PROBLEM</p>
+          <h2 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            Payments in Africa are{" "}
+            <span className="text-slate-400">broken.</span>
+          </h2>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
+            Merchants across Nigeria and Africa face the same walls every day — walls that slow down commerce, drain profits, and lock out entire markets.
+          </p>
+        </motion.div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[
+            {
+              icon: Clock,
+              title: "Slow Payment Settlement",
+              desc: "Paystack, Flutterwave, NowPayments — settlements take 24–72 hours. You've made the sale but you can't access your money.",
+              tag: "T+1 to T+3 days",
+            },
+            {
+              icon: ShieldCheck,
+              title: "KYC Hassle",
+              desc: "Endless document uploads, BVN checks, CAC verifications, and weeks of waiting just to start accepting payments.",
+              tag: "Weeks of waiting",
+            },
+            {
+              icon: Globe,
+              title: "Cross-Border Friction",
+              desc: "Sending or receiving money across borders? Expect blocked cards, FX markups, correspondent bank fees, and failed transfers.",
+              tag: "Hidden fees",
+            },
+            {
+              icon: CircleDollarSign,
+              title: "High Transaction Fees",
+              desc: "1.5–2% per transaction plus fixed charges — it adds up fast and eats directly into every merchant's margins.",
+              tag: "Up to 2% per tx",
+            },
+            {
+              icon: Wallet,
+              title: "Custodial Platforms",
+              desc: "Your funds are held by a third party. Account freezes, withdrawal limits, and arbitrary holds are a constant risk.",
+              tag: "Not your keys",
+            },
+            {
+              icon: Store,
+              title: "Difficult Merchant Onboarding",
+              desc: "Complex integrations, developer requirements, website mandates — most small merchants and social sellers never make it through.",
+              tag: "Excludes millions",
+            },
+          ].map((item, i) => {
+            const Icon = item.icon;
+            return (
+              <motion.div
+                key={item.title}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: i * 0.07 }}
+                className="group rounded-2xl border border-white/6 bg-white/2 p-6 hover:border-white/10 hover:bg-white/3 transition-all duration-300"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/8 bg-white/4 text-slate-300">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="mt-5 font-semibold text-white">{item.title}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-500">{item.desc}</p>
+                <span className="mt-4 inline-flex items-center rounded-full border border-white/8 bg-white/4 px-2.5 py-0.5 text-xs font-medium text-slate-400">
+                  {item.tag}
+                </span>
+              </motion.div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Solutions Section */}
+      <section id="solution" className="border-y border-white/6">
+        <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="mb-16"
+          >
+            <p className="text-sm font-medium text-sky-400 mb-4">THE SOLUTION</p>
+            <h2 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              Everything payments{" "}
+              <span className="text-slate-400">should be.</span>
+            </h2>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
+              Quai Merchant rebuilds payments from scratch — on-chain, borderless, and built for every merchant, everywhere.
+            </p>
+          </motion.div>
+
+          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+            {/* Left: Before */}
+            <motion.div
+              initial={{ opacity: 0, x: -24 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+              className="rounded-2xl border border-white/6 bg-white/2 p-8"
+            >
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-6">Before — Traditional Rails</p>
+              <div className="space-y-4">
+                {[
+                  "Settlement takes 1–3 business days",
+                  "2% transaction fees eat into margins",
+                  "KYC + compliance locks out merchants",
+                  "Custodial — your funds, their control",
+                  "Cross-border is expensive & unreliable",
+                  "Need a website + developer to get started",
+                ].map((item) => (
+                  <div key={item} className="flex items-center gap-3">
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/4">
+                      <X className="h-3 w-3 text-slate-500" />
+                    </div>
+                    <span className="text-sm text-slate-500 line-through">{item}</span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Right: After */}
+            <motion.div
+              initial={{ opacity: 0, x: 24 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              className="rounded-2xl border border-sky-400/15 bg-sky-400/3 p-8"
+            >
+              <p className="text-xs font-semibold uppercase tracking-widest text-sky-400 mb-6">After — Quai Merchant</p>
+              <div className="space-y-4">
+                {[
+                  { label: "Lightning-fast settlement — seconds, not days", highlight: false },
+                  { label: "Ultra-low fees — fractions of a cent on Quai", highlight: false },
+                  { label: "No KYC — start accepting payments immediately", highlight: true },
+                  { label: "Non-custodial — your wallet, your funds, always", highlight: false },
+                  { label: "Borderless — accept from anyone, anywhere", highlight: false },
+                  { label: "Free to all — no website or developer required", highlight: true },
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center gap-3">
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-sky-400/20 bg-sky-400/10">
+                      <Check className="h-3 w-3 text-sky-400" />
+                    </div>
+                    <span className={`text-sm ${item.highlight ? "text-white font-medium" : "text-slate-300"}`}>
+                      {item.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-8">
+                <Link
+                  href="/onboarding"
+                  className="group inline-flex items-center gap-2 rounded-xl bg-sky-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-sky-300"
+                >
+                  Get started free
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Social Commerce Section */}
+      <section id="social-commerce" className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+        <div className="grid gap-16 lg:grid-cols-2 lg:items-center">
+          {/* Left copy */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <p className="text-sm font-medium text-sky-400 mb-4">SOCIAL COMMERCE</p>
+            <h2 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              Not just merchants with websites.{" "}
+              <span className="text-slate-400">Every seller, everywhere.</span>
+            </h2>
+            <p className="mt-5 max-w-xl leading-7 text-slate-400">
+              We&apos;re not only building for developers or businesses with checkout pages. We&apos;re building for the <strong className="text-white">millions of sellers on social media and local markets</strong> who deserve a real payment solution.
+            </p>
+
+            <div className="mt-8 space-y-3">
+              {[
+                {
+                  icon: ShoppingCart,
+                  platform: "Facebook Marketplace",
+                  desc: "Share a payment link in your listing. Buyers pay directly — no back-and-forth, no bank transfer drama.",
+                },
+                {
+                  icon: MessageCircle,
+                  platform: "WhatsApp & Telegram",
+                  desc: "Send a payment link in chat. Your customer taps and pays in seconds. You see the confirmation instantly.",
+                },
+                {
+                  icon: Hash,
+                  platform: "Twitter / X & Instagram",
+                  desc: "Drop your payment link in your bio or DMs. Turn followers into paying customers without a single line of code.",
+                },
+                {
+                  icon: Store,
+                  platform: "Local Vendors & Market Traders",
+                  desc: "Physical market? No problem. Share a link or QR code. Get paid on the spot — no POS terminal needed.",
+                },
+              ].map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <motion.div
+                    key={item.platform}
+                    initial={{ opacity: 0, x: -16 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.4, delay: i * 0.08 }}
+                    className="flex items-start gap-4 rounded-2xl border border-white/6 bg-white/2 p-4 hover:border-white/10 transition-all"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/8 bg-white/4 text-slate-300">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-white">{item.platform}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-500">{item.desc}</p>
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </motion.div>
+
+          {/* Right: Payment link demo card */}
+          <motion.div
+            initial={{ opacity: 0, y: 32, scale: 0.97 }}
+            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.55, delay: 0.15 }}
+            className="mx-auto w-full max-w-sm"
+          >
+            <div className="rounded-2xl border border-white/8 bg-[#0d0d0f] overflow-hidden">
+              {/* Chat header */}
+              <div className="flex items-center gap-2 border-b border-white/6 bg-white/2 px-4 py-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/8 bg-white/6">
+                  <MessageCircle className="h-4 w-4 text-slate-300" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-white">Chat — Amaka&apos;s Store</p>
+                  <p className="text-[10px] text-slate-500">Payment link request</p>
+                </div>
+              </div>
+
+              {/* Chat messages */}
+              <div className="px-4 py-4 space-y-3">
+                <div className="ml-auto max-w-[80%] rounded-2xl rounded-br-sm border border-white/6 bg-white/4 p-3">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Tag className="h-3 w-3 text-slate-400" />
+                    <p className="text-[10px] text-slate-400">Ankara Dress — Order #142</p>
+                  </div>
+                  <p className="text-xs text-slate-200">Here&apos;s your payment link. Tap to pay securely.</p>
+                </div>
+
+                <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm border border-sky-400/20 bg-sky-400/5 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <LinkIcon className="h-3 w-3 text-sky-400" />
+                    <p className="text-[10px] font-medium text-sky-400">quaimerchant.com/pay/ord-142</p>
+                  </div>
+                  <div className="rounded-lg border border-white/6 bg-[#0a0a0a] p-3">
+                    <p className="text-[10px] text-slate-500 mb-1">Payment Request</p>
+                    <p className="text-sm font-bold text-white">25.00 QUAI</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Ankara Wrap Dress — Order #142</p>
+                    <div className="mt-2 rounded-md bg-sky-400 py-1.5 text-center">
+                      <p className="text-[10px] font-semibold text-slate-950">Pay Now with Quai</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="max-w-[65%] rounded-2xl rounded-bl-sm border border-white/6 bg-white/3 p-3">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="h-3 w-3 text-slate-400" />
+                    <p className="text-xs text-slate-300">Payment confirmed. Order dispatched.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="border-t border-white/6 px-4 py-4">
+                <p className="text-[10px] font-medium text-slate-500 mb-3 uppercase tracking-wider">Why payment links work</p>
+                <div className="space-y-2">
+                  {[
+                    { icon: Check, label: "Every order tracked automatically — no mix-ups" },
+                    { icon: Zap, label: "Instant on-chain confirmation, no chasing" },
+                    { icon: Package, label: "Orders tagged and organised, not random transfers" },
+                    { icon: Unlock, label: "No app install or signup needed for buyers" },
+                  ].map(({ icon: Icon, label }) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                      <p className="text-xs text-slate-500">{label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Future / Roadmap Section */}
+      <section id="roadmap" className="border-t border-white/6">
+        <div className="mx-auto max-w-7xl px-6 py-24 lg:px-8 lg:py-32">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="mb-16"
+          >
+            <p className="text-sm font-medium text-sky-400 mb-4">WHAT&apos;S COMING</p>
+            <h2 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+              The future of{" "}
+              <span className="text-slate-400">Quai Merchant.</span>
+            </h2>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
+              We&apos;re just getting started. Here&apos;s where we&apos;re taking this — from social commerce to global infrastructure.
+            </p>
+          </motion.div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              {
+                icon: ShoppingBag,
+                title: "Shopify Integration",
+                desc: "One-click plugin for Shopify stores. Any Shopify merchant goes live with Quai payments in minutes — no developer needed.",
+                status: "Coming Soon",
+              },
+              {
+                icon: TrendingUp,
+                title: "Direct Off-Ramp to Bank",
+                desc: "Convert your Quai earnings directly to your personal or business bank account. Seamless fiat exit, no middlemen.",
+                status: "Coming Soon",
+              },
+              {
+                icon: Smartphone,
+                title: "Mobile SDK",
+                desc: "Native iOS and Android SDKs so developers can embed Quai Merchant checkout into any mobile app with a few lines of code.",
+                status: "Planned",
+              },
+              {
+                icon: Users,
+                title: "Merchant Analytics",
+                desc: "Deep insights into your payment volume, top customers, order tracking, and revenue trends — all in one dashboard.",
+                status: "In Progress",
+              },
+              {
+                icon: Send,
+                title: "Subscriptions & Recurring Payments",
+                desc: "Set up subscription plans, recurring billing, and auto-pay for your customers. Built for SaaS, memberships, and services.",
+                status: "Planned",
+              },
+              {
+                icon: Code2,
+                title: "WooCommerce Plugin",
+                desc: "A native WooCommerce extension so any WordPress store can accept Quai payments with a single plugin install.",
+                status: "Planned",
+              },
+            ].map((item, i) => {
+              const Icon = item.icon;
+              const isActive = item.status === "In Progress";
+              return (
+                <motion.div
+                  key={item.title}
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.4, delay: i * 0.07 }}
+                  className="group rounded-2xl border border-white/6 bg-white/2 p-6 hover:border-white/10 hover:bg-white/3 transition-all duration-300"
+                >
+                  <div className="flex items-start justify-between mb-5">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/8 bg-white/4 text-slate-300">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                      isActive
+                        ? "border-sky-400/20 bg-sky-400/8 text-sky-400"
+                        : "border-white/8 bg-white/4 text-slate-500"
+                    }`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <h3 className="font-semibold text-white">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">{item.desc}</p>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="relative border-t border-white/6">
         <div className="relative mx-auto max-w-4xl px-6 py-24 text-center lg:py-32">
@@ -486,6 +907,7 @@ function Navbar() {
         <div className="hidden items-center gap-8 md:flex">
           <a href="#how-it-works" className="text-sm text-slate-500 transition hover:text-white">How it works</a>
           <Link href="/checkout/demo" className="text-sm text-slate-500 transition hover:text-white">Checkout Demo</Link>
+          <a href="#problems" className="text-sm text-slate-500 transition hover:text-white">Why Us</a>
           <a href="#developers" className="text-sm text-slate-500 transition hover:text-white">Developers</a>
           <Link href="/docs" className="text-sm text-slate-500 transition hover:text-white">Docs</Link>
           <Link href="/terms" className="text-sm text-slate-500 transition hover:text-white">Terms</Link>
@@ -511,6 +933,7 @@ function Navbar() {
           <div className="flex flex-col gap-4 p-6">
             <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">How it works</a>
             <Link href="/checkout/demo" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Checkout Demo</Link>
+            <a href="#problems" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Why Us</a>
             <a href="#developers" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Developers</a>
             <Link href="/docs" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Docs</Link>
             <Link href="/terms" onClick={() => setMobileMenuOpen(false)} className="text-sm text-slate-400 hover:text-white">Terms</Link>
