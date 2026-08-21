@@ -79,6 +79,7 @@ export default function PayPage({ params }: { params: Params }) {
   const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
   const [customerName, setCustomerName] = useState("");
   const receiptRef = useRef<HTMLDivElement>(null);
+  const autoPaidRef = useRef(false);
   const [downloading, setDownloading] = useState(false);
   const [claimedOrderId, setClaimedOrderId] = useState<string | null>(null);
   const [claimedMerchant, setClaimedMerchant] = useState<string | null>(null);
@@ -254,6 +255,15 @@ export default function PayPage({ params }: { params: Params }) {
       setStage({ name: "error", message: parseError(err) });
     }
   }, [link, slug, connected]);
+
+  // Choosing a wallet IS the payment intent — continue straight into claiming + wallet
+  // approval instead of dead-ending on a second "Pay" click. The ref guard keeps this to
+  // exactly one attempt per page load (retries go through the error screen's Try Again).
+  useEffect(() => {
+    if (!connected || stage.name !== "ready" || autoPaidRef.current) return;
+    autoPaidRef.current = true;
+    void connectAndPay();
+  }, [connected, stage.name, connectAndPay]);
 
   // ── Done screen ──────────────────────────────────────────────────────────
   if (stage.name === "done" && link) {
@@ -622,46 +632,49 @@ export default function PayPage({ params }: { params: Params }) {
 
                           {(payTab === "wallet" || !isNative(link)) && (
                             <div className="p-6">
-                              {connected ? (
-                                <div className="space-y-3">
-                                  <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3 text-center">
-                                    <p className="text-xs text-[#8b93a7]">
-                                      Paying as
-                                    </p>
-                                    <p className="mt-1 break-all font-mono text-xs text-white">
-                                      {connected}
-                                    </p>
-                                  </div>
-                                  {/* Customer name */}
-                                  <div>
-                                    <p className="mb-2 text-sm text-[#8b93a7]">
-                                      Your name (optional — appears on receipt)
-                                    </p>
-                                    <input
-                                      type="text"
-                                      value={customerName}
-                                      onChange={(e) =>
-                                        setCustomerName(e.target.value)
-                                      }
-                                      placeholder="e.g. Alice"
-                                      maxLength={60}
-                                      className="h-10 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-sm text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
-                                    />
-                                  </div>
-                                  <button
-                                    onClick={() => void connectAndPay()}
-                                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] py-3.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff]"
-                                  >
-                                    Pay {link.amountDisplay} {symbol(link)}
-                                  </button>
+                              <div className="space-y-3">
+                                {/* Customer name — captured before connecting, because
+                                    connecting now flows straight into payment approval. */}
+                                <div>
+                                  <p className="mb-2 text-sm text-[#8b93a7]">
+                                    Your name (optional — appears on receipt)
+                                  </p>
+                                  <input
+                                    type="text"
+                                    value={customerName}
+                                    onChange={(e) =>
+                                      setCustomerName(e.target.value)
+                                    }
+                                    placeholder="e.g. Alice"
+                                    maxLength={60}
+                                    className="h-10 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-sm text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                                  />
                                 </div>
-                              ) : (
-                                <WalletSelector
-                                  connectedAddress={null}
-                                  onConnected={setConnected}
-                                  label="Connect wallet to pay"
-                                />
-                              )}
+                                {connected ? (
+                                  <>
+                                    <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3 text-center">
+                                      <p className="text-xs text-[#8b93a7]">
+                                        Paying as
+                                      </p>
+                                      <p className="mt-1 break-all font-mono text-xs text-white">
+                                        {connected}
+                                      </p>
+                                    </div>
+                                    <button
+                                      onClick={() => void connectAndPay()}
+                                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#38bdf8] py-3.5 text-sm font-semibold text-[#061018] transition hover:bg-[#67d8ff]"
+                                    >
+                                      Pay {link.amountDisplay} {symbol(link)}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <WalletSelector
+                                    connectedAddress={null}
+                                    onConnected={setConnected}
+                                    label="Connect wallet to pay"
+                                  />
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>

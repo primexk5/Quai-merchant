@@ -695,10 +695,21 @@ export async function claimOrderFromLink(slug: string, payerAddress: string): Pr
     body: JSON.stringify({ payerAddress }),
     signal: AbortSignal.timeout(15_000),
   });
+  // Body may not be JSON when an intermediary answers (sleeping free-tier backend, proxy
+  // failover) — never let res.json() throw a raw SyntaxError at the customer.
+  const text = await res.text().catch(() => "");
+  let body: (ClaimResult & { error?: string; retryAfterSecs?: number }) | null = null;
+  try {
+    body = JSON.parse(text) as ClaimResult & { error?: string; retryAfterSecs?: number };
+  } catch {
+    body = null;
+  }
   if (res.status === 503) {
     throw new Error('Payment link is fully booked — the merchant needs to add more order slots. Please try again later.');
   }
-  const body = (await res.json()) as ClaimResult & { error?: string; retryAfterSecs?: number };
+  if (res.status === 404 || res.status === 502 || res.status === 504 || !body) {
+    throw new Error('The payment service is waking up — please tap Pay again in a few seconds.');
+  }
   if (res.status === 429) {
     // Return the already-claimed orderId so they can continue their payment
     if (!body.orderId) throw new Error('You already used this link recently. Please wait a few minutes before trying again.');

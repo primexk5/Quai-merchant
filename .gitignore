@@ -1,1 +1,3 @@
 /docs../.cold-owner.key
+.vercel
+.env*
