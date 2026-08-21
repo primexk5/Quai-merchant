@@ -466,6 +466,38 @@ export class PostgresStore implements Store {
     }
   }
 
+  async reclaimStaleClaim(slug: string, payerAddress: string, olderThanMs: number): Promise<string | undefined> {
+    const client: PoolClient = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const cutoff = Date.now() - olderThanMs;
+      const { rows } = await client.query(
+        `SELECT order_id FROM claims
+         WHERE slug = $1 AND settled = false AND claimed_at < $2
+         ORDER BY claimed_at ASC
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED`,
+        [slug, cutoff],
+      );
+      if (!rows.length) {
+        await client.query('ROLLBACK');
+        return undefined;
+      }
+      const orderId = rows[0]!.order_id as string;
+      await client.query(
+        'UPDATE claims SET payer_address = $1, claimed_at = $2 WHERE slug = $3 AND order_id = $4',
+        [payerAddress.toLowerCase(), Date.now(), slug, orderId],
+      );
+      await client.query('COMMIT');
+      return orderId;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   async settleClaimedOrder(slug: string, orderId: string): Promise<void> {
     await this.pool.query('UPDATE claims SET settled = true WHERE slug = $1 AND order_id = $2', [
       slug,

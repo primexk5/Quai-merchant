@@ -643,6 +643,34 @@ export async function fetchLink(slug: string): Promise<LinkInfo | null> {
   return (await res.json()) as LinkInfo;
 }
 
+/**
+ * Validate a payment link's currency BEFORE any wallet popup or order claim. Native QUAI links
+ * pass instantly; token links must carry a well-formed address AND be accepted by the contract.
+ * Without this, a misconfigured link crashes deep inside ethers with a cryptic
+ * "unsupported addressable value" after the customer has already connected their wallet.
+ * Returns an error message for the customer, or null when the link is payable.
+ */
+export async function linkPaymentProblem(link: LinkInfo): Promise<string | null> {
+  const token = (link.tokenAddress ?? "").trim();
+  if (token.toLowerCase() === ZERO_ADDRESS.toLowerCase()) return null;
+  let addr: string;
+  try {
+    addr = getAddress(token);
+  } catch {
+    return "This payment link's currency is misconfigured — please ask the merchant to recreate the link.";
+  }
+  try {
+    const contract = new Contract(resolvePayAddress(), paywithquaiAbi, getRpcProvider());
+    const accepted = (await contract.isTokenAccepted(addr)) as boolean;
+    if (!accepted) {
+      return "This link pays in a token that isn't accepted by the payment contract yet — please ask the merchant to update it.";
+    }
+  } catch {
+    // RPC hiccup — don't block the payment on a failed read; payOrder surfaces real errors.
+  }
+  return null;
+}
+
 export interface ClaimResult {
   orderId: string;
   merchant: string;

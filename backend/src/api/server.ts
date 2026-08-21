@@ -350,6 +350,9 @@ await store.upsertMerchant(updated);
   });
 
   const DOUBLE_PAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+  // An unsettled claim older than this is considered abandoned and its orderId is handed back
+  // out — otherwise abandoned checkouts permanently drain the pool until it reads "fully booked".
+  const CLAIM_STALE_MS = 15 * 60 * 1000; // 15 minutes
 
   app.post('/v1/links/:slug/claim', linkLimiter, asyncHandler(async (req, res) => {
     const slug = req.params.slug ?? '';
@@ -380,6 +383,21 @@ await store.upsertMerchant(updated);
           orderId: latest.orderId, // let them reuse their already-claimed orderId
         });
       }
+    }
+
+    // Recycle abandoned checkouts first: an unsettled claim older than CLAIM_STALE_MS is
+    // reassigned to this payer instead of consuming a fresh pool slot. The orderId stays valid
+    // on-chain (link orders have no payer binding), so reuse is safe.
+    const recycled = await store.reclaimStaleClaim(slug, payerAddress, CLAIM_STALE_MS);
+    if (recycled) {
+      logger.info({ slug, payerAddress, orderId: recycled }, 'stale claim recycled');
+      return res.json({
+        orderId: recycled,
+        merchant: getAddress(link.merchantAddress),
+        token: link.tokenAddress,
+        amount: link.amount,
+        poolRemaining: link.orderPool.length,
+      });
     }
 
     const orderId = await store.claimOrderFromPool(slug, payerAddress);

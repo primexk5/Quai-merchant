@@ -29,6 +29,7 @@ import {
   waitForOnChainConfirmation,
   fetchLink,
   claimOrderFromLink,
+  linkPaymentProblem,
   type LinkInfo,
 } from "@/lib/payment";
 import {
@@ -205,6 +206,8 @@ export default function PayPage({ params }: { params: Params }) {
 
       // Step 1: Claim an orderId from the pool
       setStage({ name: "claiming" });
+      const linkProblem = await linkPaymentProblem(link);
+      if (linkProblem) throw new Error(linkProblem);
       const claim = await claimOrderFromLink(slug, connected);
       const orderId = claim.orderId;
       const merchant = claim.merchant;

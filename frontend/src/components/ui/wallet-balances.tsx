@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrowserProvider, Contract } from "quais";
+import { BrowserProvider, Contract, getAddress } from "quais";
 import { getActiveWallet } from "@/lib/wallets";
-import { getRpcProvider, resolveTokenAddress } from "@/lib/payment";
+import { getRpcProvider, MUSDQ_ADDRESS } from "@/lib/payment";
 import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
 
 // Minimal ERC20 ABI for balance checking
@@ -14,6 +14,17 @@ const ERC20_ABI = [
 function chainLabel(): string {
   return "Quai mainnet holdings";
 }
+
+/** Resolves the configured stablecoin address once — null when unset or malformed, in which
+ *  case the token row is shown as "not configured" instead of failing the whole widget. */
+const tokenAddress: string | null = (() => {
+  if (!MUSDQ_ADDRESS) return null;
+  try {
+    return getAddress(MUSDQ_ADDRESS);
+  } catch {
+    return null;
+  }
+})();
 
 export function WalletBalances() {
   const [quaiBalance, setQuaiBalance] = useState<string | null>(null);
@@ -52,16 +63,22 @@ export function WalletBalances() {
         setQuaiBalance((Number(balance) / 1e18).toFixed(2));
       } catch (err) {
         console.error("Error fetching QUAI balance:", err);
+        setQuaiBalance(null);
       }
 
-      // Fetch mUSDQ (6 decimals) — token read failures (e.g. wrong address) fail this row only.
+      // Fetch the stablecoin (6 decimals) only when its address is actually configured —
+      // a missing/bad address must never take down the QUAI row with it.
+      if (!tokenAddress) {
+        setMusdqBalance(null);
+        return;
+      }
       try {
-        const tokenContract = new Contract(resolveTokenAddress(), ERC20_ABI, provider);
+        const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
         const tokenBalance = await tokenContract.balanceOf(address);
         setMusdqBalance((Number(tokenBalance) / 1e6).toFixed(2));
       } catch (err) {
-        console.error("Error fetching mUSDQ balance:", err);
-        setError("Failed to load token balances");
+        console.error("Error fetching token balance:", err);
+        setMusdqBalance(null);
       }
     } catch (err) {
       console.error("Error fetching balances:", err);
@@ -101,19 +118,21 @@ export function WalletBalances() {
       {error ? (
         <p className="text-sm text-red-400">{error}</p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className={`grid gap-4 ${tokenAddress ? "sm:grid-cols-2" : ""}`}>
           <div className="rounded-xl border border-white/4 bg-[#0a0a0a] p-4">
             <p className="text-xs text-[#8b93a7]">Native QUAI</p>
             <p className="mt-1 font-mono text-xl text-white">
-              {loading ? "..." : quaiBalance}
+              {loading ? "..." : quaiBalance ?? "—"}
             </p>
           </div>
-          <div className="rounded-xl border border-white/4 bg-[#0a0a0a] p-4">
-            <p className="text-xs text-[#8b93a7]">mUSDQ (Stablecoin)</p>
-            <p className="mt-1 font-mono text-xl text-[#34d399]">
-              {loading ? "..." : musdqBalance}
-            </p>
-          </div>
+          {tokenAddress && (
+            <div className="rounded-xl border border-white/4 bg-[#0a0a0a] p-4">
+              <p className="text-xs text-[#8b93a7]">mUSDQ (Stablecoin)</p>
+              <p className="mt-1 font-mono text-xl text-[#34d399]">
+                {loading ? "..." : musdqBalance ?? "—"}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

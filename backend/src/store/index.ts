@@ -59,6 +59,10 @@ export interface Store {
   listLinksForMerchant(merchantAddress: string): Promise<PaymentLink[]>;
   /** Remove one orderId from the pool and return it, or undefined if pool is empty. */
   claimOrderFromPool(slug: string, payerAddress: string): Promise<string | undefined>;
+  /** Atomically reassigns the oldest unsettled claim older than `olderThanMs` to `payerAddress`
+   *  and returns its orderId — recycling abandoned checkouts instead of consuming a fresh slot.
+   *  Safe because link orders are pre-registered on-chain with no payer binding. */
+  reclaimStaleClaim(slug: string, payerAddress: string, olderThanMs: number): Promise<string | undefined>;
   /** Mark a previously-claimed orderId as settled (payment confirmed on-chain). */
   settleClaimedOrder(slug: string, orderId: string): Promise<void>;
 

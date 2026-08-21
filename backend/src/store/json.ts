@@ -353,6 +353,18 @@ export class JsonStore implements Store {
     return orderId;
   }
 
+  async reclaimStaleClaim(slug: string, payerAddress: string, olderThanMs: number): Promise<string | undefined> {
+    const claims = this.data.claims[slug];
+    if (!claims) return undefined;
+    const cutoff = Date.now() - olderThanMs;
+    const idx = claims.findIndex((c) => !c.settled && c.claimedAt < cutoff);
+    if (idx === -1) return undefined;
+    claims[idx]!.payerAddress = payerAddress.toLowerCase();
+    claims[idx]!.claimedAt = Date.now();
+    this.flush();
+    return claims[idx]!.orderId;
+  }
+
   async settleClaimedOrder(slug: string, orderId: string): Promise<void> {
     const claims = this.data.claims[slug];
     if (!claims) return;
