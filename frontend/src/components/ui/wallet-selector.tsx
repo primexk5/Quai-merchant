@@ -87,7 +87,11 @@ export function WalletSelector({
     setBusy(wallet.id);
     setError(null);
     try {
-      const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+      // Only Pelagus connects before any network check — its EIP-3326 requests hang, so it
+      // gets a verify-free pass. Blip and every other wallet are put on Quai mainnet first
+      // (Blip's documented provider supports switch/add and answers quai_chainId instantly,
+      // even before accounts are connected).
+      const quaiNative = wallet.brand === "pelagus";
       let address: string;
       if (quaiNative) {
         address = await connectWallet(wallet);

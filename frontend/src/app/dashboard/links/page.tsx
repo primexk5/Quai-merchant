@@ -122,7 +122,9 @@ export default function LinksPage() {
     }
     try {
       const chain = QUAI_MAINNET_CHAIN;
-      const quaiNative = brand === "pelagus" || brand === "blip";
+      // Only Pelagus skips network checks (its EIP-3326 requests hang). Blip goes through
+      // the full verify → switch → add path — its documented provider supports both methods.
+      const quaiNative = brand === "pelagus";
       const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
       if (net === "unsupported") {
         setError(

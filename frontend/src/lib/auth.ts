@@ -3,7 +3,6 @@
 import { BrowserProvider } from "quais";
 import { backendFetch } from "@/lib/payment";
 import {
-  connectWallet,
   ensureQuaiNetwork,
   getActiveWallet,
   QUAI_MAINNET_CHAIN,
@@ -84,11 +83,10 @@ export function isLoggedIn(): boolean {
  * Signs the login challenge with the active wallet and exchanges it for a session.
  * The message is minted by the backend per request (single-use nonce + chain id + realm bound),
  * so a captured signature can never be replayed.
- */
-/**
- * @param preConnectedAddress Pass the address already obtained from WalletSelector so
- *   we skip re-requesting accounts (which just opens the wallet UI again instead of
- *   prompting the user to sign the challenge message).
+ *
+ * NEVER initiates a wallet connection: `preConnectedAddress` must come from an explicit
+ * user action (WalletSelector / Blip connect button). If it's missing we fail loudly
+ * instead of silently firing a connection popup the user didn't ask for.
  */
 export async function loginWithWallet(
   preConnectedAddress?: string,
@@ -97,11 +95,14 @@ export async function loginWithWallet(
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+  if (!preConnectedAddress) {
+    throw new Error("Connect your wallet first, then press Sign in.");
+  }
+  // Only Pelagus skips network checks (its EIP-3326 requests hang). Blip goes through the
+  // full verify → switch → add path — its documented provider supports both methods.
+  const quaiNative = wallet.brand === "pelagus";
   await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN, { quaiNative });
-  // Use the already-connected address when available so we jump straight to
-  // the signature step instead of re-triggering the account-selection popup.
-  const address = preConnectedAddress ?? (await connectWallet(wallet));
+  const address = preConnectedAddress;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const provider = new BrowserProvider(wallet.provider as any, "any");

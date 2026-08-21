@@ -77,15 +77,15 @@ export default function PayPage({ params }: { params: Params }) {
   const [connected, setConnected] = useState<string | null>(null);
   const [insideBlip, setInsideBlip] = useState(false);
   const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
+  const [blipConnecting, setBlipConnecting] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const receiptRef = useRef<HTMLDivElement>(null);
-  const autoPaidRef = useRef(false);
   const [downloading, setDownloading] = useState(false);
   const [claimedOrderId, setClaimedOrderId] = useState<string | null>(null);
   const [claimedMerchant, setClaimedMerchant] = useState<string | null>(null);
   const pageUrl = currentPageUrl();
 
-  // Blip auto-connect
+  // Detect the Blip in-app browser (read-only — never requests accounts)
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -119,7 +119,8 @@ export default function PayPage({ params }: { params: Params }) {
     if (!blip) {
       throw new Error("Blip wallet not detected — reopen this page inside the Blip app.");
     }
-    const net = await ensureQuaiNetwork(blip.provider, QUAI_MAINNET_CHAIN, { quaiNative: true });
+    // Blip's provider implements EIP-3326 (verify → switch → add) per its docs.
+    const net = await ensureQuaiNetwork(blip.provider, QUAI_MAINNET_CHAIN);
     if (net === "unsupported") {
       throw new Error(
         "Blip couldn't switch to Quai mainnet (chain 9) — switch networks in Blip and retry.",
@@ -129,20 +130,6 @@ export default function PayPage({ params }: { params: Params }) {
     storeWalletId(blip.id);
     setConnected(addr);
   }, []);
-
-  useEffect(() => {
-    if (!insideBlip || connected || stage.name !== "ready") return;
-    // Wrap in an async function to prevent static analysis from falsely flagging this
-    // as a synchronous setState (connectBlip is async and awaits before setting state).
-    const run = async () => {
-      try {
-        await connectBlip();
-      } catch {
-        // ignored — errors can be retried via the UI button
-      }
-    };
-    void run();
-  }, [insideBlip, connected, stage.name, connectBlip]);
 
   // Load link metadata
   useEffect(() => {
@@ -206,7 +193,9 @@ export default function PayPage({ params }: { params: Params }) {
       const wallet = getActiveWallet();
       if (wallet) {
         const chain = QUAI_MAINNET_CHAIN;
-        const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+        // Only Pelagus skips network checks (its EIP-3326 requests hang). Blip goes through
+        // the full verify → switch → add path — its documented provider supports both methods.
+        const quaiNative = wallet.brand === "pelagus";
         const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
         if (net === "unsupported") {
           throw new Error(
@@ -265,15 +254,6 @@ export default function PayPage({ params }: { params: Params }) {
       setStage({ name: "error", message: parseError(err) });
     }
   }, [link, slug, connected]);
-
-  // Choosing a wallet IS the payment intent — continue straight into claiming + wallet
-  // approval instead of dead-ending on a second "Pay" click. The ref guard keeps this to
-  // exactly one attempt per page load (retries go through the error screen's Try Again).
-  useEffect(() => {
-    if (!connected || stage.name !== "ready" || autoPaidRef.current) return;
-    autoPaidRef.current = true;
-    void connectAndPay();
-  }, [connected, stage.name, connectAndPay]);
 
   // ── Done screen ──────────────────────────────────────────────────────────
   if (stage.name === "done" && link) {
@@ -512,28 +492,30 @@ export default function PayPage({ params }: { params: Params }) {
                               </button>
                             </>
                           ) : (
-                            <div className="flex flex-col items-center gap-3 py-4">
-                              <div className="flex items-center justify-center gap-2 text-sm text-[#8b93a7]">
-                                <Loader2
-                                  size={16}
-                                  className="animate-spin text-[#C1ED00]"
-                                />
-                                Connecting Blip wallet…
-                              </div>
-                              <button
-                                onClick={() =>
-                                  void connectBlip().catch((err) =>
+                            <button
+                              onClick={() => {
+                                setBlipConnecting(true);
+                                connectBlip()
+                                  .catch((err) =>
                                     setStage({
                                       name: "error",
                                       message: parseError(err),
                                     }),
                                   )
-                                }
-                                className="text-xs text-[#C1ED00] hover:underline"
-                              >
-                                Retry connection
-                              </button>
-                            </div>
+                                  .finally(() => setBlipConnecting(false));
+                              }}
+                              disabled={blipConnecting}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00] disabled:opacity-60"
+                            >
+                              {blipConnecting ? (
+                                <Loader2 size={15} className="animate-spin" />
+                              ) : (
+                                <Smartphone size={15} />
+                              )}
+                              {blipConnecting
+                                ? "Connecting…"
+                                : "Connect Blip wallet"}
+                            </button>
                           )}
                         </div>
                       </div>
@@ -643,8 +625,8 @@ export default function PayPage({ params }: { params: Params }) {
                           {(payTab === "wallet" || !isNative(link)) && (
                             <div className="p-6">
                               <div className="space-y-3">
-                                {/* Customer name — captured before connecting, because
-                                    connecting now flows straight into payment approval. */}
+                                {/* Customer name — captured before paying so it
+                                    lands on the receipt. */}
                                 <div>
                                   <p className="mb-2 text-sm text-[#8b93a7]">
                                     Your name (optional — appears on receipt)
@@ -744,10 +726,7 @@ export default function PayPage({ params }: { params: Params }) {
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
               {stage.message}
               <button
-                onClick={() => {
-                  autoPaidRef.current = false;
-                  setStage({ name: "ready" });
-                }}
+                onClick={() => setStage({ name: "ready" })}
                 className="mt-2 block text-xs text-[#38bdf8] hover:underline"
               >
                 Try again

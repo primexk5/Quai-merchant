@@ -8,6 +8,11 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { isLoggedIn } from "@/lib/auth";
 import { adminPatch, useRelayerData } from "@/lib/relayer";
+import {
+  DEFAULT_WEBHOOK_PATH,
+  normalizeWebhookInput,
+  webhookUrlPreview,
+} from "@/lib/webhook";
 
 export default function SettingsPage() {
   const { merchants, loading, error, refresh } = useRelayerData();
@@ -28,14 +33,16 @@ export default function SettingsPage() {
 
   const save = async () => {
     if (!merchant) return;
-    let parsed: URL;
+    // Accept a bare domain ("myshop.com") or a full URL — normalize before sending.
+    let url: string;
     try {
-      parsed = new URL(webhookUrl);
-    } catch {
-      setSaveError("Enter a valid URL, e.g. https://example.com/webhooks/paywithquai");
+      url = normalizeWebhookInput(webhookUrl);
+    } catch (err) {
+      setSaveError(parseError(err));
       return;
     }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    const parsedProtocol = url.slice(0, url.indexOf(":"));
+    if (parsedProtocol !== "https:" && parsedProtocol !== "http:") {
       setSaveError("Webhook URL must start with http(s)://");
       return;
     }
@@ -48,7 +55,8 @@ export default function SettingsPage() {
       const path = isLoggedIn()
         ? "/v1/me"
         : `/api/admin/merchants/${merchant.address}`;
-      await adminPatch(path, { webhookUrl });
+      await adminPatch(path, { webhookUrl: url });
+      setWebhookUrl(url);
       setDirty(false);
       setSaved(true);
       void refresh();
@@ -117,21 +125,38 @@ export default function SettingsPage() {
 
                 <div className="text-sm">
                   <span className="mb-2 block text-[#8b93a7]">Webhook URL</span>
-                  <input
-                    type="url"
-                    value={webhookUrl}
-                    onChange={(e) => {
-                      setWebhookUrl(e.target.value);
-                      setDirty(true);
-                      setSaved(false);
-                      setSaveError(null);
-                    }}
-                    placeholder="https://example.com/webhooks/paywithquai"
-                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 font-mono text-xs text-white outline-none transition placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
-                  />
+                  <div className="flex h-11 items-center overflow-hidden rounded-xl border border-white/7 bg-[#171717] transition focus-within:border-[#38bdf8]/40">
+                    <input
+                      type="text"
+                      value={webhookUrl}
+                      onChange={(e) => {
+                        setWebhookUrl(e.target.value);
+                        setDirty(true);
+                        setSaved(false);
+                        setSaveError(null);
+                      }}
+                      placeholder="yourdomain.com"
+                      autoComplete="off"
+                      inputMode="url"
+                      className="h-full w-full bg-transparent px-3 font-mono text-xs text-white outline-none placeholder:text-[#4f5868]"
+                    />
+                  </div>
                   <p className="mt-2 text-xs text-[#4f5868]">
-                    HTTPS is required by default — http://localhost is allowed
-                    in local development.
+                    {webhookUrl.trim() && webhookUrlPreview(webhookUrl) ? (
+                      <>
+                        Deliveries go to{" "}
+                        <span className="break-all text-[#8b93a7]">
+                          {webhookUrlPreview(webhookUrl)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        Your domain is enough — we complete it to{" "}
+                        <code>https://yourdomain{DEFAULT_WEBHOOK_PATH}</code>. A
+                        full URL also works. HTTPS required (http://localhost is
+                        allowed in development).
+                      </>
+                    )}
                   </p>
                 </div>
               </div>

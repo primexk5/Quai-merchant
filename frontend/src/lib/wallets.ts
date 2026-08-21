@@ -236,15 +236,18 @@ export async function getWalletChainId(
 
 /**
  * Puts the wallet on Quai mainnet — every wallet brand operates on chain 9.
- * Switches when the chain is already known, otherwise asks the wallet to add it.
- * The outcome is verified by re-reading the wallet's chain id — wallets may resolve
- * the switch promise without actually changing, or reject it with non-standard codes.
+ * Flow: read the current chain id first (cheap — Blip answers `quai_chainId` with no network
+ * round-trip) and only escalate to EIP-3326 RPCs when it actually differs from the target:
+ *   1. `wallet_switchEthereumChain` — verified by re-reading the id afterwards, because
+ *      wallets may resolve the promise without switching or reject with non-standard codes.
+ *   2. `wallet_addEthereumChain` — some wallets reject unknown chains with codes other than
+ *      4902, so the add is attempted regardless of the switch's error.
  *
- * Quai-native wallets (Pelagus / Blip) often mishandle `wallet_switchEthereumChain` /
- * `wallet_addEthereumChain`: the extension opens on the Assets tab with no switch UI
- * and the request never settles — which looks like "signing doesn't work" on payment
- * links. For those brands we never call EIP-3326; we only verify the chain id (or
- * proceed when the wallet can't report one).
+ * `opts.quaiNative` marks Pelagus ONLY: its extension opens on the Assets tab with no switch
+ * UI and the request never settles, so for that brand we skip all checks entirely and trust
+ * the wallet (it is Quai-only and cannot sit on any other chain). Blip is NOT quai-native
+ * here: its documented provider implements both EIP-3326 methods (firing `chainChanged`) and
+ * reports chain 0x9 instantly, so it goes through the full verify → switch → add path.
  */
 export async function ensureQuaiNetwork(
   provider: Eip1193Provider,
@@ -254,13 +257,15 @@ export async function ensureQuaiNetwork(
   const targetId = normalizeChainId(target.chainId);
   if (!targetId) return "unsupported";
 
-  // ── Quai-native wallets (Pelagus, Blip) ─────────────────────────────────
-  // These wallets are Quai-only — they cannot connect to Ethereum or any
-  // non-Quai chain. There is no need (and no safe way) to call EIP-3326 RPCs
-  // on them. Pelagus may also report a chain ID (e.g. 9000) that doesn't match
-  // the Cyprus-1 zone's EVM id (9 / 0x9), producing a false "wrong network"
-  // error even when the user is already on Quai mainnet. Skip all checks.
+  // ── Pelagus ─────────────────────────────────────────────────────────────
+  // Quai-only extension; calling EIP-3326 on it hangs the request (see above).
+  // Historically it also reported non-EVM chain ids (e.g. 9000), producing false
+  // "wrong network" errors even on mainnet — so we never gate on its reported id.
   if (opts?.quaiNative) return "ok";
+
+  // Fast path: already on the target chain — no popups, no writes.
+  const before = await getWalletChainId(provider);
+  if (before === targetId) return "ok";
 
   try {
     await provider.request({
@@ -274,8 +279,7 @@ export async function ensureQuaiNetwork(
     if (code === 4001) throw new Error("Network switch declined.");
   }
 
-  // Switch failed or didn't take effect — some wallets reject unknown chains with
-  // codes other than 4902, so try adding the chain regardless of the error.
+  // Switch failed or didn't take effect — try adding the chain.
   try {
     await provider.request({
       method: "wallet_addEthereumChain",

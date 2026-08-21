@@ -17,6 +17,11 @@ import { Logo } from "@/components/logo";
 import { WalletSelector } from "@/components/ui/wallet-selector";
 import { storeWalletId } from "@/lib/wallets";
 import { useBlipContext } from "@/lib/blip";
+import {
+  DEFAULT_WEBHOOK_PATH,
+  normalizeWebhookInput,
+  webhookUrlPreview,
+} from "@/lib/webhook";
 import QRCode from "react-qr-code";
 
 function BlipLogo({ className = "h-4 w-4" }: { className?: string }) {
@@ -29,7 +34,7 @@ function BlipLogo({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-const steps = ["Business", "Wallet", "Complete"];
+const steps = ["Wallet", "Business", "Complete"];
 
 interface OnboardedMerchant {
   merchantId: string;
@@ -60,16 +65,17 @@ export default function OnboardingPage() {
       setError("Enter a business name — it shows on your checkout page.");
       return;
     }
-    const url = webhookUrl.trim();
-    if (!url) {
-      setError("Enter a webhook URL — the relayer uses it to POST payment events.");
-      return;
-    }
-    try {
-      new URL(url);
-    } catch {
-      setError("That webhook URL doesn't look valid. Use a full URL like http://localhost:9000/webhook.");
-      return;
+    // Webhook is OPTIONAL here — merchants can add or change it later in Settings.
+    // A bare domain ("myshop.com") is completed to the default receiver path.
+    let url = "";
+    const rawWebhook = webhookUrl.trim();
+    if (rawWebhook) {
+      try {
+        url = normalizeWebhookInput(rawWebhook);
+      } catch (err) {
+        setError(parseError(err));
+        return;
+      }
     }
     setRegistering(true);
     setError(null);
@@ -79,7 +85,9 @@ export default function OnboardingPage() {
       const res = await fetch("/api/admin/merchants", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address, name, webhookUrl: url }),
+        body: JSON.stringify(
+          url ? { address, name, webhookUrl: url } : { address, name },
+        ),
       });
       if (!res.ok) {
         const detail = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -174,56 +182,6 @@ export default function OnboardingPage() {
                 <Wallet size={21} />
               </div>
 
-              <h2 className="mt-5 text-xl font-semibold">
-                Tell us about your business
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-[#8b93a7]">
-                Used on the checkout and in the merchant dashboard.
-              </p>
-
-              <div className="mt-7 space-y-5">
-                <div>
-                  <label className="mb-2 block text-sm text-[#8b93a7]">
-                    Business name
-                  </label>
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Quai Store"
-                    name="qm-merchant-name"
-                    autoComplete="off"
-                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm text-[#8b93a7]">
-                    Webhook URL
-                  </label>
-                  <input
-                    value={webhookUrl}
-                    onChange={(e) => setWebhookUrl(e.target.value)}
-                    placeholder="https://api.example.com/webhooks/quai"
-                    name="qm-webhook-url"
-                    autoComplete="off"
-                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
-                  />
-                  <span className="mt-2 block text-xs text-[#4f5868]">
-                    The relayer POSTs signed <code>payment.confirmed</code>{" "}
-                    events here. For local testing use{" "}
-                    <code>http://localhost:9000/webhook</code>.
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
-
-          {step === 1 && (
-            <>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
-                <Wallet size={21} />
-              </div>
-
               <h2 className="mt-5 text-xl font-semibold">Connect your settlement wallet</h2>
               <p className="mt-1 text-sm leading-6 text-[#8b93a7]">
                 Your wallet receives payments after they settle on the Quai network.
@@ -234,6 +192,11 @@ export default function OnboardingPage() {
                 <div className="mt-6 rounded-xl border border-emerald-400/15 bg-emerald-400/6 px-4 py-3">
                   <p className="text-xs text-[#8b93a7]">Connected (Cyprus-1)</p>
                   <p className="mt-1 break-all font-mono text-xs text-emerald-300">{address}</p>
+                  {insideBlip && (
+                    <p className="mt-2 text-xs leading-5 text-[#C1ED00]">
+                      This is your Blip app wallet for this site — payouts settle here.
+                    </p>
+                  )}
                 </div>
               ) : insideBlip ? (
                 /* ── INSIDE Blip browser: one-tap connect ── */
@@ -387,6 +350,79 @@ export default function OnboardingPage() {
             </>
           )}
 
+          {step === 1 && (
+            <>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#38bdf8]/15 bg-[#38bdf8]/6 text-[#38bdf8]">
+                <Wallet size={21} />
+              </div>
+
+              <h2 className="mt-5 text-xl font-semibold">
+                Tell us about your business
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-[#8b93a7]">
+                Used on the checkout and in the merchant dashboard.
+              </p>
+
+              <div className="mt-7 space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm text-[#8b93a7]">
+                    Business name
+                  </label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Quai Store"
+                    name="qm-merchant-name"
+                    autoComplete="off"
+                    className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm text-[#8b93a7]">
+                    Webhook domain{" "}
+                    <span className="text-[#4f5868]">(optional)</span>
+                  </label>
+                  <div className="flex h-11 items-center overflow-hidden rounded-xl border border-white/7 bg-[#171717] focus-within:border-[#38bdf8]/40">
+                    <span className="hidden border-r border-white/7 px-3 font-mono text-xs text-[#4f5868] sm:block">
+                      https://
+                    </span>
+                    <input
+                      value={webhookUrl}
+                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      placeholder="yourdomain.com"
+                      name="qm-webhook-domain"
+                      autoComplete="off"
+                      inputMode="url"
+                      className="h-full w-full bg-transparent px-3 text-white outline-none placeholder:text-[#4f5868]"
+                    />
+                  </div>
+                  <span className="mt-2 block text-xs text-[#4f5868]">
+                    {webhookUrl.trim() ? (
+                      webhookUrlPreview(webhookUrl) ? (
+                        <>
+                          We&apos;ll POST signed <code>payment.confirmed</code>{" "}
+                          events to{" "}
+                          <span className="break-all text-[#8b93a7]">
+                            {webhookUrlPreview(webhookUrl)}
+                          </span>
+                        </>
+                      ) : (
+                        <>Enter a domain like myshop.com — we complete the rest.</>
+                      )
+                    ) : (
+                      <>
+                        Just your domain — we deliver to{" "}
+                        <code>https://yourdomain{DEFAULT_WEBHOOK_PATH}</code>.
+                        You can add or change this anytime in Settings.
+                      </>
+                    )}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
           {step === 2 && merchant && (
             <div className="py-2 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-300">
@@ -395,12 +431,24 @@ export default function OnboardingPage() {
 
               <h2 className="mt-5 text-xl font-semibold">You&apos;re ready.</h2>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#8b93a7]">
-                {merchant.name} is registered and will receive{" "}
-                <code>payment.confirmed</code> webhooks at{" "}
-                <span className="break-all text-[#8b93a7]">
-                  {merchant.webhookUrl}
-                </span>
-                .
+                {merchant.name} is registered on Quai mainnet.
+                {merchant.webhookUrl ? (
+                  <>
+                    {" "}You&apos;ll receive <code>payment.confirmed</code> webhooks at{" "}
+                    <span className="break-all text-[#8b93a7]">
+                      {merchant.webhookUrl}
+                    </span>
+                    .
+                  </>
+                ) : (
+                  <>
+                    {" "}Add your webhook URL anytime in{" "}
+                    <Link href="/dashboard/settings" className="text-[#38bdf8] hover:underline">
+                      Settings
+                    </Link>{" "}
+                    to get notified when payments settle.
+                  </>
+                )}
               </p>
 
               <div className="mx-auto mt-6 max-w-md rounded-2xl border border-white/7 bg-[#171717] p-4 text-left">
@@ -448,14 +496,15 @@ export default function OnboardingPage() {
                 <div className="flex w-full justify-end">
                   <button
                     onClick={() => {
-                      if (!name.trim()) {
-                        setError("Enter your business name before continuing.");
+                      if (!address) {
+                        setError("Connect a wallet to continue — it receives your payouts.");
                         return;
                       }
                       setError(null);
                       setStep(1);
                     }}
-                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff]"
+                    disabled={!address}
+                    className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-xl bg-[#38bdf8] px-5 py-2.5 text-sm font-semibold text-[#061018] hover:bg-[#67d8ff] disabled:opacity-60"
                   >
                     Continue
                     <ArrowRight size={15} />

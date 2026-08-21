@@ -257,6 +257,12 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
       webhookUrl: webhookUrl ?? merchant.webhookUrl,
     };
 await store.upsertMerchant(updated);
+    // First webhook URL configured by the merchant themselves — catch up on payments that
+    // settled while it was empty (recorded as skipped).
+    if (!merchant.webhookUrl && updated.webhookUrl) {
+      const requeued = await store.requeueSkippedForMerchant(updated);
+      if (requeued > 0) logger.info({ merchantId: updated.merchantId, requeued }, 'webhook configured — re-queued skipped payments');
+    }
     logger.info({ merchantId: updated.merchantId }, 'merchant profile updated');
     res.json(publicMerchant(updated));
   }));
@@ -425,7 +431,10 @@ await store.upsertMerchant(updated);
   const OnboardSchema = z.object({
     address: z.string().regex(/^0x[0-9a-fA-F]{40}$/, 'address must be a 20-byte hex address'),
     name: z.string().min(1).max(200),
-    webhookUrl: z.string().url(),
+    // Webhooks are optional at onboarding — merchants can add the URL later (Settings →
+    // PATCH). Payments that settle while the URL is empty are recorded as skipped and
+    // re-queued automatically once a URL is configured.
+    webhookUrl: z.string().url().optional(),
   });
 
   admin.post('/merchants', asyncHandler(async (req, res) => {
@@ -434,11 +443,13 @@ await store.upsertMerchant(updated);
       return res.status(400).json({ error: 'invalid body', issues: parsed.error.issues });
     }
     // SSRF guard: reject non-https / internal webhook targets up front (see webhooks/urlGuard).
-    try {
-      assertSafeWebhookUrl(parsed.data.webhookUrl, cfg.WEBHOOK_ALLOW_INSECURE_URLS);
-    } catch (e) {
-      if (e instanceof UnsafeWebhookUrlError) return res.status(400).json({ error: e.message });
-      throw e;
+    if (parsed.data.webhookUrl !== undefined) {
+      try {
+        assertSafeWebhookUrl(parsed.data.webhookUrl, cfg.WEBHOOK_ALLOW_INSECURE_URLS);
+      } catch (e) {
+        if (e instanceof UnsafeWebhookUrlError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
     }
     let address: string;
     try {
@@ -458,7 +469,7 @@ await store.upsertMerchant(updated);
       merchantId: newMerchantId(),
       address: address.toLowerCase(),
       name: parsed.data.name,
-      webhookUrl: parsed.data.webhookUrl,
+      webhookUrl: parsed.data.webhookUrl ?? '',
       webhookSecret: newWebhookSecret(), // shown exactly once — the merchant must store it
       active: true,
       createdAt: Date.now(),
@@ -515,6 +526,12 @@ await store.upsertMerchant(updated);
       active: active ?? existing.active,
     };
 await store.upsertMerchant(updated);
+    // First time a webhook URL is configured: re-queue payments that settled while it was
+    // empty (recorded as skipped) so the merchant catches up on anything it missed.
+    if (!existing.webhookUrl && updated.webhookUrl) {
+      const requeued = await store.requeueSkippedForMerchant(updated);
+      if (requeued > 0) logger.info({ merchantId: updated.merchantId, requeued }, 'webhook configured — re-queued skipped payments');
+    }
     logger.info({ merchantId: updated.merchantId, address, active: updated.active }, 'merchant updated');
     res.json(publicMerchant(updated));
   }));

@@ -143,6 +143,26 @@ export class Indexer {
       return;
     }
 
+    // Merchant registered but hasn't configured a webhook URL yet: keep the event on file as
+    // `skipped` under this merchant's id — configuring a URL later re-queues it automatically.
+    if (!merchant.webhookUrl) {
+      const pendingUrl: WebhookDelivery = {
+        id,
+        merchantId: merchant.merchantId,
+        url: '',
+        payload,
+        status: 'skipped',
+        attempts: 0,
+        nextAttemptAt: nowMs,
+        lastError: 'webhook URL not configured yet',
+        createdAt: nowMs,
+        updatedAt: nowMs,
+      };
+      await this.store.insertDeliveryIfAbsent(pendingUrl);
+      logger.warn({ id, merchantId: merchant.merchantId }, 'payment confirmed but merchant webhook URL is not configured — delivery skipped');
+      return;
+    }
+
     const delivery: WebhookDelivery = {
       id,
       merchantId: merchant.merchantId,

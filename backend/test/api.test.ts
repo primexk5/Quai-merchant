@@ -250,6 +250,18 @@ describe('API', () => {
         expect(status, webhookUrl).toBe(400);
       }
     });
+
+    it('onboards without a webhook URL (empty webhookUrl stored)', async () => {
+      const { base, store } = await startApp();
+      const { status } = await req(base, '/v1/merchants', {
+        method: 'POST',
+        headers: { ...auth(ADMIN_KEY), ...jsonHeaders },
+        body: JSON.stringify({ address: MERCHANT_ADDR, name: 'Acme' }),
+      });
+      expect(status).toBe(201);
+      const stored = (await store.getMerchantByAddress(MERCHANT_ADDR))!;
+      expect(stored.webhookUrl).toBe('');
+    });
   });
 
   describe('PATCH /v1/merchants/:address', () => {
@@ -282,6 +294,36 @@ describe('API', () => {
           body: JSON.stringify({}),
         })).status,
       ).toBe(404); // merchant never onboarded — checked before body validation
+    });
+
+    it('re-queues skipped payments the first time a webhook URL is configured', async () => {
+      const { base, store } = await startApp();
+      // Onboard WITHOUT a webhook URL.
+      await req(base, '/v1/merchants', {
+        method: 'POST',
+        headers: { ...auth(ADMIN_KEY), ...jsonHeaders },
+        body: JSON.stringify({ address: MERCHANT_ADDR, name: 'Acme' }),
+      });
+      // A payment settled while the URL was empty → recorded as skipped.
+      const id = '0x' + 'ab'.repeat(32) + ':0';
+      await seedDelivery(store, {
+        id,
+        url: '',
+        status: 'skipped',
+        lastError: 'webhook URL not configured yet',
+      });
+
+      // Configuring the URL must re-queue it with the new target.
+      const { status } = await req(base, `/v1/merchants/${MERCHANT_ADDR}`, {
+        method: 'PATCH',
+        headers: { ...auth(ADMIN_KEY), ...jsonHeaders },
+        body: JSON.stringify({ webhookUrl: 'https://example.test/webhook' }),
+      });
+      expect(status).toBe(200);
+      const d = (await store.getDelivery(id))!;
+      expect(d.status).toBe('pending');
+      expect(d.url).toBe('https://example.test/webhook');
+      expect(d.lastError).toBeNull();
     });
   });
 

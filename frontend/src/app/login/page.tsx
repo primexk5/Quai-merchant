@@ -132,6 +132,10 @@ export default function LoginPage() {
                 <div className="mt-4 rounded-xl border border-[#C1ED00]/20 bg-[#C1ED00]/5 px-4 py-3">
                   <p className="text-xs text-[#8b93a7]">Connected via Blip</p>
                   <p className="mt-1 break-all font-mono text-xs text-[#C1ED00]">{address}</p>
+                  <p className="mt-2 text-xs leading-5 text-[#8b93a7]">
+                    This is your Blip app wallet for this site — sign in with the
+                    wallet you registered as your payout address.
+                  </p>
                 </div>
               )}
             </div>

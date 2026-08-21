@@ -86,6 +86,7 @@ export default function CheckoutPage({ params }: { params: Params }) {
   const [order, setOrder] = useState<OnChainOrder | null>(null);
   const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
   const [connected, setConnected] = useState<string | null>(null);
+  const [blipConnecting, setBlipConnecting] = useState(false);
   const [insideBlip, setInsideBlip] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState("");
 
@@ -122,18 +123,21 @@ export default function CheckoutPage({ params }: { params: Params }) {
     return () => clearInterval(timer);
   }, [insideBlip, connected, stage.name]);
 
-  /** Inside Blip's browser: auto-connect window.quai so pay is one tap. */
-  useEffect(() => {
-    if (!insideBlip || connected || stage.name !== "ready") return;
+  /** Connects the Blip wallet — only ever called from an explicit user click. */
+  const connectBlip = async () => {
     const blip = detectWallets().find((w) => w.brand === "blip");
     if (!blip) return;
-    void connectWallet(blip)
-      .then((addr) => {
-        storeWalletId(blip.id);
-        setConnected(addr);
-      })
-      .catch(() => undefined);
-  }, [insideBlip, connected, stage.name]);
+    setBlipConnecting(true);
+    try {
+      const addr = await connectWallet(blip);
+      storeWalletId(blip.id);
+      setConnected(addr);
+    } catch {
+      // user declined or wallet locked — they can tap Connect again
+    } finally {
+      setBlipConnecting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -455,10 +459,20 @@ export default function CheckoutPage({ params }: { params: Params }) {
                             </button>
                           </>
                         ) : (
-                          <div className="flex items-center justify-center gap-2 py-4 text-sm text-[#8b93a7]">
-                            <Loader2 size={16} className="animate-spin text-[#C1ED00]" />
-                            Connecting Blip wallet…
-                          </div>
+                          <button
+                            onClick={() => void connectBlip()}
+                            disabled={blipConnecting}
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#C1ED00] py-3.5 text-sm font-semibold text-[#0F1116] transition hover:bg-[#d4ff00] disabled:opacity-60"
+                          >
+                            {blipConnecting ? (
+                              <Loader2 size={15} className="animate-spin" />
+                            ) : (
+                              <Smartphone size={15} />
+                            )}
+                            {blipConnecting
+                              ? "Connecting…"
+                              : "Connect Blip wallet"}
+                          </button>
                         )}
                       </div>
                     </div>

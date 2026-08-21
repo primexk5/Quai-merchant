@@ -7,10 +7,20 @@ import {
   getAddress,
   id,
   parseQuai,
+  toBeHex,
   type Signer,
 } from "quais";
 import paywithquaiAbi from "./paywithquai.abi.json";
-import { ensureQuaiNetwork, getActiveWallet, QUAI_MAINNET_CHAIN, type Eip1193Provider } from "./wallets";
+import {
+  ensureQuaiNetwork,
+  getActiveWallet,
+  QUAI_MAINNET_CHAIN,
+  type Eip1193Provider,
+} from "./wallets";
+import {
+  getWalletQuaiBalance,
+  requestAppWalletFunding,
+} from "./blip";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
@@ -244,23 +254,102 @@ export async function backendFetch(path: string, init?: RequestInit): Promise<Re
 
 /**
  * Build a BrowserProvider with an **explicit** network so quais never tries to
- * auto-detect the network from eth_chainId. Blip and Pelagus report their chain
- * ID in ways that quais alpha.56 can't resolve, which surfaces as the cryptic
- * "unsupported addressable value" error during getSigner(). Passing the network
- * object explicitly short-circuits that detection path entirely.
+ * auto-detect the network from eth_chainId. Injected Quai wallets report their chain
+ * id in ways that quais alpha.56 can't always resolve, which surfaces as the cryptic
+ * "unsupported addressable value" error during getSigner(). Passing "any" short-circuits
+ * that detection path entirely — safe because every wallet here is already verified to be
+ * on Quai mainnet via ensureQuaiNetwork() before signing, and we re-check separately.
  */
 function makeBrowserProvider(eip1193: Eip1193Provider): BrowserProvider {
-  // Pass "any" as the network so quais accepts whatever chain the wallet reports
-  // without throwing "network changed" or "unsupported addressable value".
-  //
-  // Context: Blip reports chain ID 15000 internally while our app targets chain 9
-  // (Cyprus-1). Passing an explicit Network(9) causes quais to throw "network changed:
-  // 9 => 15000" the moment it detects the real chain. Passing "any" suppresses that
-  // check entirely — safe because the wallet already enforces Quai-only connections,
-  // and we verify the chain separately via ensureQuaiNetwork() before signing.
-  //
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new BrowserProvider(eip1193 as any, "any");
+}
+
+// ── Blip app-wallet payment path ─────────────────────────────────────────────
+// Inside Blip's browser the connected account is a per-origin APP WALLET (not the user's
+// main vault) and it is often empty. Two adjustments make payments work there:
+//
+// 1. FUNDING — before sending value, read the app wallet's balance (documented
+//    `quai_getBalance`) and, when short, ask Blip to top it up from the main vault via
+//    `blip_requestAppWalletFunding`. Native top-ups within the user's per-app limit are
+//    silent; larger ones show Blip's approval sheet.
+//
+// 2. RAW SENDS — quais's signer.sendTransaction() first hits `quai_blockNumber`,
+//    `quai_getTransactionCount` and `quai_estimateGas` on the INJECTED provider; those
+//    methods are not part of Blip's documented bridge surface and can fail before the
+//    approval popup ever appears. So inside Blip we skip the quais signer entirely and
+//    POST `{from, to, value, data}` straight through the documented `quai_sendTransaction`
+//    (exactly what Blip's own quickstart does) — Blip fills gas/nonce internally.
+
+/** Extra native QUAI requested on top of the order amount so gas can't kill the send. */
+const BLIP_GAS_CUSHION_WEI = parseQuai("0.1");
+
+/** The origin's connected app-wallet address via silent `quai_accounts` (no prompt). */
+async function blipConnectedAddress(provider: Eip1193Provider): Promise<string> {
+  const accounts = (await provider.request({ method: "quai_accounts" })) as string[];
+  if (!accounts?.length) {
+    throw new Error("Connect your Blip wallet first, then try again.");
+  }
+  return accounts[0];
+}
+
+/**
+ * Makes sure the app wallet can cover `requiredWei` (+ gas cushion). No-op when the wallet
+ * has enough or when funding isn't available (older builds / other wallets).
+ */
+async function ensureBlipNativeFunding(
+  provider: Eip1193Provider,
+  address: string,
+  requiredWei: bigint,
+): Promise<void> {
+  const needed = requiredWei + BLIP_GAS_CUSHION_WEI;
+  const balance = await getWalletQuaiBalance(provider, address);
+  if (balance == null || balance >= needed) return;
+
+  const shortfall = needed - balance;
+  await requestAppWalletFunding(provider, {
+    chainId: QUAI_MAINNET_CHAIN.chainId,
+    reason: "payment",
+    continueLabel: "Continue payment",
+    assets: [
+      {
+        type: "native",
+        symbol: "QUAI",
+        decimals: 18,
+        amountWei: toBeHex(shortfall),
+        purpose: "payment",
+      },
+    ],
+  }).catch(async (err) => {
+    // Funding unavailable (unsupported method / no features flag): fall through only if the
+    // wallet actually has enough for the raw amount — Blip may still auto-top-up at send time.
+    const fresh = await getWalletQuaiBalance(provider, address);
+    if (fresh != null && fresh >= requiredWei) return;
+    throw err;
+  });
+}
+
+/** Sends a tx through the bridge and maps the common rejection codes to friendly copy. */
+async function blipSend(
+  provider: Eip1193Provider,
+  tx: { from: string; to: string; value?: string; data?: string },
+): Promise<string> {
+  try {
+    const hash = await provider.request({ method: "quai_sendTransaction", params: [tx] });
+    if (typeof hash !== "string" || !hash.startsWith("0x")) {
+      throw new Error("Blip returned no transaction hash.");
+    }
+    return hash;
+  } catch (err) {
+    const code = (err as { code?: number })?.code;
+    if (code === 4001) throw new Error("Payment declined in Blip.");
+    if (code === -32010) {
+      throw new Error(
+        "Your Blip main vault doesn't have enough QUAI to fund this site's app wallet.",
+      );
+    }
+    throw err instanceof Error ? err : new Error("Payment failed in Blip.");
+  }
 }
 
 async function getSigner(): Promise<Signer> {
@@ -280,12 +369,9 @@ async function getSignerOnNetwork(): Promise<Signer> {
     throw new Error("No wallet connected — connect a wallet first.");
   }
   const chain = QUAI_MAINNET_CHAIN;
-  // Pelagus and Blip are Quai-native wallets — they don't support EIP-3326
-  // (wallet_switchEthereumChain / wallet_addEthereumChain). Calling those RPCs
-  // opens the Assets tab with no switch UI and the request never settles.
-  // We only verify the chain id instead, and proceed if the wallet can't report one
-  // (Quai-only wallets are always on a Quai chain).
-  const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+  // Only Pelagus skips network checks (its EIP-3326 requests hang). Blip goes through the
+  // full verify → switch → add path — its documented provider supports both methods.
+  const quaiNative = wallet.brand === "pelagus";
   const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
   if (net === "unsupported") {
     throw new Error(
@@ -470,6 +556,15 @@ export async function payOrder(
   token: string,
   amount: bigint,
 ): Promise<string> {
+  const wallet = getActiveWallet();
+  if (!wallet) {
+    throw new Error("No wallet connected — connect a wallet first.");
+  }
+  if (wallet.brand === "blip") {
+    return payOrderViaBlip(wallet.provider, merchant, orderId, token, amount);
+  }
+
+  // Pelagus / extension path — unchanged.
   const signer = await getSigner();
   const payAddress = resolvePayAddress();
   const contract = getContract(signer);
@@ -491,14 +586,99 @@ export async function payOrder(
   }
 }
 
+/**
+ * Token payment inside the Blip browser: raw `quai_sendTransaction` for BOTH the approve
+ * and the settle call (see the Blip block above for why), with an app-wallet funding
+ * request when either the token balance or the gas cushion is short.
+ */
+async function payOrderViaBlip(
+  provider: Eip1193Provider,
+  merchant: string,
+  orderId: string,
+  token: string,
+  amount: bigint,
+): Promise<string> {
+  const payAddress = resolvePayAddress();
+  // Cheap guard: single instant quai_chainId read when already on mainnet.
+  const net = await ensureQuaiNetwork(provider, QUAI_MAINNET_CHAIN);
+  if (net === "unsupported") {
+    throw new Error("Blip couldn't switch to Quai mainnet (chain 9) — switch networks and retry.");
+  }
+  const from = await blipConnectedAddress(provider);
+
+  // Check the token balance via OUR OWN RPC (no bridge involvement) so a hopeless
+  // payment fails before any popup. If short, ask Blip to fund the token + gas.
+  try {
+    const erc20 = new Contract(
+      token,
+      ["function balanceOf(address) view returns (uint256)"],
+      getRpcProvider(),
+    );
+    const bal = (await erc20.balanceOf(from)) as bigint;
+    if (bal < amount) {
+      await requestAppWalletFunding(provider, {
+        chainId: QUAI_MAINNET_CHAIN.chainId,
+        reason: "payment",
+        continueLabel: "Continue payment",
+        assets: [
+          {
+            type: "erc20",
+            token,
+            decimals: 6,
+            amount: toBeHex(amount - bal),
+            purpose: "payment",
+          },
+          {
+            type: "native",
+            symbol: "QUAI",
+            decimals: 18,
+            amountWei: toBeHex(BLIP_GAS_CUSHION_WEI),
+            purpose: "gas",
+          },
+        ],
+      });
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === "BlipFundingError") throw err;
+    // Balance check itself failed (RPC hiccup) — proceed; the send surfaces real errors.
+  }
+
+  await ensureBlipNativeFunding(provider, from, 0n); // keep gas covered even if tokens were fine
+
+  const approveInterface = new Interface([
+    "function approve(address spender, uint256 amount) returns (bool)",
+  ]);
+  const approveHash = await blipSend(provider, {
+    from,
+    to: token,
+    data: approveInterface.encodeFunctionData("approve", [payAddress, amount]),
+  });
+  await waitForTxReceipt(approveHash);
+
+  return blipSend(provider, {
+    from,
+    to: payAddress,
+    data: payInterface.encodeFunctionData("payOrder", [merchant, orderId]),
+  });
+}
+
 /** Customer settles a native QUAI order. Returns the tx receipt. */
 export async function payOrderNative(
   merchant: string,
   orderId: string,
   amount: bigint | string,
 ): Promise<string> {
-  const signer = await getSigner();
+  const wallet = getActiveWallet();
+  if (!wallet) {
+    throw new Error("No wallet connected — connect a wallet first.");
+  }
   const value = typeof amount === "bigint" ? amount : parseQuai(amount);
+  if (wallet.brand === "blip") {
+    return payOrderNativeViaBlip(wallet.provider, merchant, orderId, value);
+  }
+
+  // Pelagus / extension path — unchanged.
+  const signer = await getSigner();
   try {
     const tx = await getContract(signer).payOrderNative(merchant, orderId, {
       value,
@@ -512,6 +692,33 @@ export async function payOrderNative(
     if (reason) throw new Error(reason);
     throw err;
   }
+}
+
+/**
+ * Native payment inside the Blip browser: top up the per-origin app wallet when it can't
+ * cover the amount (+ gas cushion), then send through the documented bridge method.
+ */
+async function payOrderNativeViaBlip(
+  provider: Eip1193Provider,
+  merchant: string,
+  orderId: string,
+  value: bigint,
+): Promise<string> {
+  // Cheap guard: when already on mainnet this is a single instant quai_chainId read;
+  // otherwise Blip is asked to switch/add (documented supported) before we send value.
+  const net = await ensureQuaiNetwork(provider, QUAI_MAINNET_CHAIN);
+  if (net === "unsupported") {
+    throw new Error("Blip couldn't switch to Quai mainnet (chain 9) — switch networks and retry.");
+  }
+  const from = await blipConnectedAddress(provider);
+  await ensureBlipNativeFunding(provider, from, value);
+
+  return blipSend(provider, {
+    from,
+    to: resolvePayAddress(),
+    value: toBeHex(value),
+    data: payInterface.encodeFunctionData("payOrderNative", [merchant, orderId]),
+  });
 }
 
 /** Cryptographically random order id — Math.random()/timestamps are predictable, and the id is
