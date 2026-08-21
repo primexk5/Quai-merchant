@@ -122,7 +122,8 @@ export default function LinksPage() {
     }
     try {
       const chain = QUAI_MAINNET_CHAIN;
-      const net = await ensureQuaiNetwork(wallet.provider, chain);
+      const quaiNative = brand === "pelagus" || brand === "blip";
+      const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
       if (net === "unsupported") {
         setError(
           `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — switch networks in your wallet and retry.`,

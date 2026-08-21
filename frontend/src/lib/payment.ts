@@ -260,7 +260,13 @@ async function getSignerOnNetwork(): Promise<Signer> {
     throw new Error("No wallet connected — connect a wallet first.");
   }
   const chain = QUAI_MAINNET_CHAIN;
-  const net = await ensureQuaiNetwork(wallet.provider, chain);
+  // Pelagus and Blip are Quai-native wallets — they don't support EIP-3326
+  // (wallet_switchEthereumChain / wallet_addEthereumChain). Calling those RPCs
+  // opens the Assets tab with no switch UI and the request never settles.
+  // We only verify the chain id instead, and proceed if the wallet can't report one
+  // (Quai-only wallets are always on a Quai chain).
+  const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+  const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
   if (net === "unsupported") {
     throw new Error(
       `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — ` +
