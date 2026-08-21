@@ -254,14 +254,13 @@ export async function ensureQuaiNetwork(
   const targetId = normalizeChainId(target.chainId);
   if (!targetId) return "unsupported";
 
-  const current = await getWalletChainId(provider);
-  if (current && current === targetId) return "ok";
-
-  if (opts?.quaiNative) {
-    // Can't read chain id — Pelagus/Blip are Quai-only; don't open a phantom switch prompt.
-    if (!current) return "ok";
-    return "unsupported";
-  }
+  // ── Quai-native wallets (Pelagus, Blip) ─────────────────────────────────
+  // These wallets are Quai-only — they cannot connect to Ethereum or any
+  // non-Quai chain. There is no need (and no safe way) to call EIP-3326 RPCs
+  // on them. Pelagus may also report a chain ID (e.g. 9000) that doesn't match
+  // the Cyprus-1 zone's EVM id (9 / 0x9), producing a false "wrong network"
+  // error even when the user is already on Quai mainnet. Skip all checks.
+  if (opts?.quaiNative) return "ok";
 
   try {
     await provider.request({
