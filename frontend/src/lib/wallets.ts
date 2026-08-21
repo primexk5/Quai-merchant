@@ -208,10 +208,11 @@ export async function getWalletChainId(
   provider: Eip1193Provider,
 ): Promise<string | null> {
   try {
-    const chainId = (await provider.request({
-      method: "eth_chainId",
-    })) as string;
-    return chainId ?? null;
+    let chainId = await provider.request({ method: "quai_chainId" }).catch(() => null);
+    if (!chainId) {
+      chainId = await provider.request({ method: "eth_chainId" }).catch(() => null);
+    }
+    return (chainId as string) ?? null;
   } catch {
     return null;
   }
