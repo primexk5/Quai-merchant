@@ -26,6 +26,7 @@ import {
   orderPaymentError,
   payOrder,
   payOrderNative,
+  requestBlipAppWalletTopUp,
   waitForOnChainConfirmation,
   fetchLink,
   claimOrderFromLink,
@@ -78,6 +79,7 @@ export default function PayPage({ params }: { params: Params }) {
   const [insideBlip, setInsideBlip] = useState(false);
   const [payTab, setPayTab] = useState<"blip" | "wallet">("wallet");
   const [blipConnecting, setBlipConnecting] = useState(false);
+  const [needsFund, setNeedsFund] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const receiptRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -177,6 +179,7 @@ export default function PayPage({ params }: { params: Params }) {
 
   const connectAndPay = useCallback(async () => {
     if (!link) return;
+    setNeedsFund(false);
     const wallet = getActiveWallet();
     if (!wallet) {
       setStage({ name: "error", message: "No wallet connected — pick a wallet above." });
@@ -251,9 +254,22 @@ export default function PayPage({ params }: { params: Params }) {
         symbol: symbol(link),
       });
     } catch (err: unknown) {
+      setNeedsFund((err as { needsFunding?: boolean })?.needsFunding === true);
       setStage({ name: "error", message: parseError(err) });
     }
   }, [link, slug, connected]);
+
+  // Blip app wallets are often empty — when a payment fails for lack of funds, let the user
+  // pull QUAI from their main vault (Blip's funding sheet) and retry in one tap.
+  const fundAppWalletAndRetry = useCallback(async () => {
+    if (!link) return;
+    try {
+      await requestBlipAppWalletTopUp(BigInt(link.amount));
+    } catch {
+      // Still short — fall through to the retry, which re-checks and reports clearly.
+    }
+    void connectAndPay();
+  }, [link, connectAndPay]);
 
   // ── Done screen ──────────────────────────────────────────────────────────
   if (stage.name === "done" && link) {
@@ -725,6 +741,14 @@ export default function PayPage({ params }: { params: Params }) {
           {stage.name === "error" && (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
               {stage.message}
+              {needsFund && (
+                <button
+                  onClick={() => void fundAppWalletAndRetry()}
+                  className="mt-2 block w-full rounded-lg bg-[#0b0f19] px-3 py-2 text-xs font-medium text-white"
+                >
+                  Fund app wallet &amp; retry
+                </button>
+              )}
               <button
                 onClick={() => setStage({ name: "ready" })}
                 className="mt-2 block text-xs text-[#38bdf8] hover:underline"

@@ -284,6 +284,33 @@ function makeBrowserProvider(eip1193: Eip1193Provider): BrowserProvider {
 /** Extra native QUAI requested on top of the order amount so gas can't kill the send. */
 const BLIP_GAS_CUSHION_WEI = parseQuai("0.1");
 
+/** Thrown when the app wallet still can't cover a payment — the UI offers a fund-and-retry. */
+export class BlipNeedsFundsError extends Error {
+  readonly needsFunding = true;
+  constructor(message: string) {
+    super(message);
+    this.name = "BlipNeedsFundsError";
+  }
+}
+
+/** App-wallet balance read from OUR OWN RPC — chain truth, independent of Blip's bridge
+ *  accounting (a stale/wrong bridge read used to make us skip top-ups entirely). */
+async function rpcNativeBalance(address: string): Promise<bigint | null> {
+  try {
+    return await new JsonRpcProvider(QUAI_MAINNET_CHAIN.rpcUrls[0]).getBalance(address);
+  } catch {
+    return null;
+  }
+}
+
+/** Best-available balance: chain RPC first, wallet bridge as fallback. */
+async function appWalletBalance(
+  provider: Eip1193Provider,
+  address: string,
+): Promise<bigint | null> {
+  return (await rpcNativeBalance(address)) ?? (await getWalletQuaiBalance(provider, address));
+}
+
 /** The origin's connected app-wallet address via silent `quai_accounts` (no prompt). */
 async function blipConnectedAddress(provider: Eip1193Provider): Promise<string> {
   const accounts = (await provider.request({ method: "quai_accounts" })) as string[];
@@ -294,8 +321,15 @@ async function blipConnectedAddress(provider: Eip1193Provider): Promise<string> 
 }
 
 /**
- * Makes sure the app wallet can cover `requiredWei` (+ gas cushion). No-op when the wallet
- * has enough or when funding isn't available (older builds / other wallets).
+ * Makes sure the app wallet can cover `requiredWei` (+ gas cushion) before we send.
+ *
+ * The old version trusted the wallet bridge for the balance and skipped top-up whenever that
+ * read failed (null → skip) — which let payments reach Blip's own send-time gate and die with
+ * its native "insufficient funds to complete" sheet. Now:
+ *   1. balance comes from our own RPC (bridge only as fallback);
+ *   2. an UNKNOWN balance triggers a top-up attempt instead of skipping it;
+ *   3. after a funding request we poll the chain until the internal main→app transfer lands,
+ *      because `blip_requestAppWalletFunding` can resolve while the transfer is still in-flight.
  */
 async function ensureBlipNativeFunding(
   provider: Eip1193Provider,
@@ -303,30 +337,62 @@ async function ensureBlipNativeFunding(
   requiredWei: bigint,
 ): Promise<void> {
   const needed = requiredWei + BLIP_GAS_CUSHION_WEI;
-  const balance = await getWalletQuaiBalance(provider, address);
-  if (balance == null || balance >= needed) return;
+  const balance = await appWalletBalance(provider, address);
+  if (balance != null && balance >= needed) return;
 
-  const shortfall = needed - balance;
-  await requestAppWalletFunding(provider, {
-    chainId: QUAI_MAINNET_CHAIN.chainId,
-    reason: "payment",
-    continueLabel: "Continue payment",
-    assets: [
-      {
-        type: "native",
-        symbol: "QUAI",
-        decimals: 18,
-        amountWei: toBeHex(shortfall),
-        purpose: "payment",
-      },
-    ],
-  }).catch(async (err) => {
-    // Funding unavailable (unsupported method / no features flag): fall through only if the
-    // wallet actually has enough for the raw amount — Blip may still auto-top-up at send time.
-    const fresh = await getWalletQuaiBalance(provider, address);
+  const shortfall = balance != null ? needed - balance : needed;
+  let requested = false;
+  try {
+    await requestAppWalletFunding(provider, {
+      chainId: QUAI_MAINNET_CHAIN.chainId,
+      reason: "payment",
+      continueLabel: "Continue payment",
+      assets: [
+        {
+          type: "native",
+          symbol: "QUAI",
+          decimals: 18,
+          amountWei: toBeHex(shortfall),
+          purpose: "payment",
+        },
+      ],
+    });
+    requested = true;
+  } catch (err) {
+    if ((err as { code?: number })?.code === 4001) {
+      throw new Error("Top-up declined — fund this site's app wallet in Blip, then retry.");
+    }
+    // Funding unavailable/failed (older builds, feature off): verify below before sending.
+  }
+
+  if (!requested) {
+    const fresh = await appWalletBalance(provider, address);
+    if (fresh == null || fresh < requiredWei) {
+      throw new BlipNeedsFundsError(
+        "Blip couldn't top up this site's app wallet automatically. Fund it from your main vault in Blip, then retry.",
+      );
+    }
+    return;
+  }
+
+  // Funding transfer may still be in-flight — poll until it confirms (or give up clearly).
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2_000));
+    const fresh = await appWalletBalance(provider, address);
     if (fresh != null && fresh >= requiredWei) return;
-    throw err;
-  });
+  }
+  throw new BlipNeedsFundsError(
+    "The top-up hasn't landed yet — this site's app wallet is still short of QUAI. Wait a moment or fund it manually in Blip, then retry.",
+  );
+}
+
+/** Explicit user-invoked top-up (Fund & retry button). No-ops outside Blip. */
+export async function requestBlipAppWalletTopUp(requiredWei: bigint): Promise<void> {
+  const wallet = getActiveWallet();
+  if (!wallet || wallet.brand !== "blip") return;
+  const address = await blipConnectedAddress(wallet.provider);
+  await ensureBlipNativeFunding(wallet.provider, address, requiredWei);
 }
 
 /** Sends a tx through the bridge and maps the common rejection codes to friendly copy. */
@@ -342,10 +408,12 @@ async function blipSend(
     return hash;
   } catch (err) {
     const code = (err as { code?: number })?.code;
+    const message = String((err as Error)?.message ?? "");
     if (code === 4001) throw new Error("Payment declined in Blip.");
-    if (code === -32010) {
-      throw new Error(
-        "Your Blip main vault doesn't have enough QUAI to fund this site's app wallet.",
+    if (/insufficient/i.test(message) || code === -32010) {
+      // Blip's own send-time balance gate — give the UI something actionable.
+      throw new BlipNeedsFundsError(
+        "Blip couldn't complete the payment — this site's app wallet doesn't have enough QUAI. Fund it and retry.",
       );
     }
     throw err instanceof Error ? err : new Error("Payment failed in Blip.");
@@ -639,7 +707,15 @@ async function payOrderViaBlip(
       });
     }
   } catch (err) {
-    if (err instanceof Error && err.name === "BlipFundingError") throw err;
+    if (err instanceof Error && err.name === "BlipFundingError") {
+      // Token top-up failed — without those tokens the payOrder call can only revert.
+      const code = (err as { code?: number }).code;
+      throw new BlipNeedsFundsError(
+        code === 4001
+          ? "Top-up declined — this site's app wallet needs more tokens to pay. Fund it in Blip and retry."
+          : "Couldn't top up this site's app wallet with tokens. Make sure your main vault holds enough, then retry.",
+      );
+    }
     // Balance check itself failed (RPC hiccup) — proceed; the send surfaces real errors.
   }
 
