@@ -3,7 +3,6 @@ import {
   Contract,
   Interface,
   JsonRpcProvider,
-  Network,
   formatQuai,
   getAddress,
   id,
@@ -251,14 +250,17 @@ export async function backendFetch(path: string, init?: RequestInit): Promise<Re
  * object explicitly short-circuits that detection path entirely.
  */
 function makeBrowserProvider(eip1193: Eip1193Provider): BrowserProvider {
-  // chainId = 9 (0x9) is Cyprus-1 Quai mainnet. quais BrowserProvider accepts
-  // a Network as the second constructor arg and skips auto-detection when present.
-  const network = new Network(QUAI_MAINNET_CHAIN.chainName, 9);
-  // Cast needed: quais BrowserProvider expects its own internal provider type but
-  // the EIP-1193 shape is compatible at runtime. The explicit Network arg is what
-  // matters — it prevents quais from calling eth_chainId for auto-detection.
+  // Pass "any" as the network so quais accepts whatever chain the wallet reports
+  // without throwing "network changed" or "unsupported addressable value".
+  //
+  // Context: Blip reports chain ID 15000 internally while our app targets chain 9
+  // (Cyprus-1). Passing an explicit Network(9) causes quais to throw "network changed:
+  // 9 => 15000" the moment it detects the real chain. Passing "any" suppresses that
+  // check entirely — safe because the wallet already enforces Quai-only connections,
+  // and we verify the chain separately via ensureQuaiNetwork() before signing.
+  //
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new BrowserProvider(eip1193 as any, network);
+  return new BrowserProvider(eip1193 as any, "any");
 }
 
 async function getSigner(): Promise<Signer> {

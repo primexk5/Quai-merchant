@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrowserProvider, Contract, Network, getAddress } from "quais";
-import { QUAI_MAINNET_CHAIN } from "@/lib/wallets";
+import { BrowserProvider, Contract, getAddress } from "quais";
 import { getActiveWallet } from "@/lib/wallets";
 import { getRpcProvider, MUSDQ_ADDRESS } from "@/lib/payment";
 import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
@@ -52,8 +51,8 @@ export function WalletBalances() {
       // app's canonical RPC — the network the relayer + contracts actually run on. The wallet's
       // injected provider can sit on a different node/shard, where eth_call returns no data and
       // balance reads fail with "missing revert data".
-      const network = new Network(QUAI_MAINNET_CHAIN.chainName, 9);
-      const accounts = await new BrowserProvider(wallet.provider, network).listAccounts();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const accounts = await new BrowserProvider(wallet.provider as any, "any").listAccounts();
       if (!accounts.length) throw new Error("Wallet locked");
       const address = accounts[0].address;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { BrowserProvider, Network } from "quais";
+import { BrowserProvider } from "quais";
 import { backendFetch } from "@/lib/payment";
 import {
   connectWallet,
@@ -103,8 +103,8 @@ export async function loginWithWallet(
   // the signature step instead of re-triggering the account-selection popup.
   const address = preConnectedAddress ?? (await connectWallet(wallet));
 
-  const network = new Network(QUAI_MAINNET_CHAIN.chainName, 9);
-  const provider = new BrowserProvider(wallet.provider, network);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const provider = new BrowserProvider(wallet.provider as any, "any");
   const signer = await provider.getSigner();
 
   const challenge = await backendFetch("/v1/auth/challenge", {
