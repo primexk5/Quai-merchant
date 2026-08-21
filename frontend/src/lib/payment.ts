@@ -3,6 +3,7 @@ import {
   Contract,
   Interface,
   JsonRpcProvider,
+  Network,
   formatQuai,
   getAddress,
   id,
@@ -10,7 +11,7 @@ import {
   type Signer,
 } from "quais";
 import paywithquaiAbi from "./paywithquai.abi.json";
-import { ensureQuaiNetwork, getActiveWallet, QUAI_MAINNET_CHAIN } from "./wallets";
+import { ensureQuaiNetwork, getActiveWallet, QUAI_MAINNET_CHAIN, type Eip1193Provider } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
@@ -242,13 +243,30 @@ export async function backendFetch(path: string, init?: RequestInit): Promise<Re
   throw lastError instanceof Error ? lastError : new Error("backend unreachable");
 }
 
+/**
+ * Build a BrowserProvider with an **explicit** network so quais never tries to
+ * auto-detect the network from eth_chainId. Blip and Pelagus report their chain
+ * ID in ways that quais alpha.56 can't resolve, which surfaces as the cryptic
+ * "unsupported addressable value" error during getSigner(). Passing the network
+ * object explicitly short-circuits that detection path entirely.
+ */
+function makeBrowserProvider(eip1193: Eip1193Provider): BrowserProvider {
+  // chainId = 9 (0x9) is Cyprus-1 Quai mainnet. quais BrowserProvider accepts
+  // a Network as the second constructor arg and skips auto-detection when present.
+  const network = new Network(QUAI_MAINNET_CHAIN.chainName, 9);
+  // Cast needed: quais BrowserProvider expects its own internal provider type but
+  // the EIP-1193 shape is compatible at runtime. The explicit Network arg is what
+  // matters — it prevents quais from calling eth_chainId for auto-detection.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return new BrowserProvider(eip1193 as any, network);
+}
+
 async function getSigner(): Promise<Signer> {
   const wallet = getActiveWallet();
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  const provider = new BrowserProvider(wallet.provider);
-  return provider.getSigner();
+  return makeBrowserProvider(wallet.provider).getSigner();
 }
 
 /** Puts the connected wallet on Quai mainnet (chain 9) and returns a signer.
@@ -273,7 +291,7 @@ async function getSignerOnNetwork(): Promise<Signer> {
         `switch networks in your wallet and retry.`,
     );
   }
-  return new BrowserProvider(wallet.provider).getSigner();
+  return makeBrowserProvider(wallet.provider).getSigner();
 }
 
 /**
@@ -297,7 +315,7 @@ async function waitForTxReceipt(hash: string, timeoutMs = 180_000): Promise<stri
   let walletProvider: BrowserProvider | null = null;
   const wallet = getActiveWallet();
   if (wallet) {
-    walletProvider = new BrowserProvider(wallet.provider);
+    walletProvider = makeBrowserProvider(wallet.provider);
   }
   const interval = 4_000;
   // An individual RPC call gets 10s — plenty for a healthy node, short enough that a hung

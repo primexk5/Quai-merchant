@@ -1,6 +1,6 @@
 "use client";
 
-import { BrowserProvider } from "quais";
+import { BrowserProvider, Network } from "quais";
 import { backendFetch } from "@/lib/payment";
 import {
   connectWallet,
@@ -97,12 +97,14 @@ export async function loginWithWallet(
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN);
+  const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+  await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN, { quaiNative });
   // Use the already-connected address when available so we jump straight to
   // the signature step instead of re-triggering the account-selection popup.
   const address = preConnectedAddress ?? (await connectWallet(wallet));
 
-  const provider = new BrowserProvider(wallet.provider);
+  const network = new Network(QUAI_MAINNET_CHAIN.chainName, 9);
+  const provider = new BrowserProvider(wallet.provider, network);
   const signer = await provider.getSigner();
 
   const challenge = await backendFetch("/v1/auth/challenge", {
