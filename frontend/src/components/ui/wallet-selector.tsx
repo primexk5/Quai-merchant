@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { parseError } from "@/lib/utils";
 import { Check, Loader2, RefreshCw, Wallet, X } from "lucide-react";
 import {
-  chainForWallet,
   connectWallet,
   detectWallets,
   ensureQuaiNetwork,
   getActiveWallet,
   storeWalletId,
+  QUAI_MAINNET_CHAIN,
   type DetectedWallet,
   type WalletBrand,
 } from "@/lib/wallets";
@@ -87,7 +87,7 @@ export function WalletSelector({
     setBusy(wallet.id);
     setError(null);
     try {
-      await ensureQuaiNetwork(wallet.provider, chainForWallet(wallet.brand));
+      await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN);
       const address = await connectWallet(wallet);
       storeWalletId(wallet.id);
       setOpen(false);

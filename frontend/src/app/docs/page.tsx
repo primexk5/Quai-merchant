@@ -28,14 +28,14 @@ const sections = [
   { id: "webhook", label: "Step 3 — Verify the webhook" },
   { id: "confirmation", label: "Confirmation & fulfillment" },
   { id: "quick-reference", label: "Quick reference" },
-  { id: "testing", label: "Testing on testnet" },
+  { id: "testing", label: "Deployment & local development" },
 ];
 
 const installQuais = `npm install quais   # Quai's ethers fork — usePathing, formatQuai, parseQuai`;
 
 const received = `import { Contract, Wallet, JsonRpcProvider, id } from 'quais';   // NOT ethers
 
-const provider = new JsonRpcProvider('https://orchard.rpc.quai.network', undefined, { usePathing: true });
+const provider = new JsonRpcProvider('https://rpc.quai.network', undefined, { usePathing: true });
 const wallet   = new Wallet(BACKEND_PRIVATE_KEY, provider);   // your payout wallet
 const pay      = new Contract(PAYWITHQUAI_ADDRESS, PAYWITHQUAI_ABI, wallet);
 
@@ -83,11 +83,11 @@ const payer    = accounts[0];
 await window.ethereum.request({
   method: 'wallet_addEthereumChain',
   params: [{
-    chainId: '0x3A98',   // 15000 — Quai Orchard testnet
-    chainName: 'Quai Network Orchard',
+    chainId: '0x9',   // 9 — Quai mainnet (Cyprus-1 zone)
+    chainName: 'Quai Network (Mainnet)',
     nativeCurrency: { name: 'Quai', symbol: 'QUAI', decimals: 18 },
-    rpcUrls: ['https://orchard.rpc.quai.network'],
-    blockExplorerUrls: ['https://orchard.quaiscan.io'],
+    rpcUrls: ['https://rpc.quai.network'],
+    blockExplorerUrls: ['https://quaiscan.io'],
   }],
 });`;
 
@@ -130,10 +130,10 @@ while (Date.now() < deadline) {
 // Fallback if the relayer API is unreachable: pay.isSettled(merchant, orderId)`;
 
 const envVars = `# Client (browser) — MUST be NEXT_PUBLIC_* or it ships as undefined
-NEXT_PUBLIC_RPC_URL=https://orchard.rpc.quai.network
-NEXT_PUBLIC_CHAIN_ID=15000
-NEXT_PUBLIC_PAYWITHQUAI_ADDRESS=0x00707FB75afede47F3cE44A357fb2fb29C14734e
-NEXT_PUBLIC_MUSDQ_ADDRESS=0x003fafB5126a5296c6edC7C23De55daf2E84B503   # mock stablecoin (6 decimals)
+NEXT_PUBLIC_RPC_URL=https://rpc.quai.network
+NEXT_PUBLIC_CHAIN_ID=9
+NEXT_PUBLIC_PAYWITHQUAI_ADDRESS=0x…   # from contracts/deployments/cyprus1.json
+NEXT_PUBLIC_MUSDQ_ADDRESS=0x…         # mainnet stablecoin (6 decimals)
 NEXT_PUBLIC_BACKEND_URL=https://quai-merchant-three.vercel.app
 
 # Server-only — NEVER prefix with NEXT_PUBLIC_ (ships to the browser bundle)
@@ -187,13 +187,13 @@ app.post('/webhooks/paywithquai', express.raw({ type: 'application/json' }), (re
   res.sendStatus(200);   // 2xx within 10s = success. Anything else is retried.
 });`;
 
-const testnet = `# Already deployed on Cyprus-1 (Orchard testnet) — no deployment needed:
-#   PayWithQuai proxy: 0x00707FB75afede47F3cE44A357fb2fb29C14734e
-#   Mock stablecoin:   0x003fafB5126a5296c6edC7C23De55daf2E84B503
-
+const deployMainnet = `# Deploy PayWithQuai to Quai mainnet (chain 9, Cyprus-1 zone):
 cd contracts
-npm run deploy:testnet   # (optional) deploy your own proxy + mock stablecoin
-npm run demo:testnet     # mints, registers, approves, pays a demo order`;
+cp .env.example .env
+# Fill in: RPC_URL=https://rpc.quai.network, CHAIN_ID=9, CYPRUS1_PK (funded hot key),
+# FEE_RECIPIENT (treasury), STABLECOIN_ADDR, MULTISIG_ADDR, PAUSE_GUARDIAN_ADDR.
+npx hardhat run scripts/deploy.js --network cyprus1
+# Writes contracts/deployments/cyprus1.json — copy payWithQuai into NEXT_PUBLIC_PAYWITHQUAI_ADDRESS.`;
 
 function SectionHeading({
   id,
@@ -392,24 +392,23 @@ export default function DocsPage() {
             </div>
 
             <div className="mt-5 space-y-4">
-              <Callout tone="success" title="Already deployed — start coding now">
-                The PayWithQuai proxy is live on Cyprus-1 (Orchard testnet):
+              <Callout tone="success" title="Quai mainnet (chain 9)">
+                The platform runs on Quai mainnet, Cyprus-1 zone:
                 <span className="mt-2 block font-mono text-[13px] text-[#c9d4e0]">
-                  {`0x00707FB75afede47F3cE44A357fb2fb29C14734e`}
+                  {`RPC https://rpc.quai.network · chainId 9`}
                 </span>
                 <span className="mt-2 block">
-                  RPC{" "}
+                  Deploy the PayWithQuai proxy once (see the deployment section
+                  below) and set{" "}
                   <span className="font-mono text-[13px] text-[#c9d4e0]">
-                    https://orchard.rpc.quai.network
+                    NEXT_PUBLIC_PAYWITHQUAI_ADDRESS
                   </span>{" "}
-                  · chainId{" "}
-                  <span className="font-mono text-[13px] text-[#c9d4e0]">15000</span>{" "}
-                  · mock stablecoin{" "}
+                  from{" "}
                   <span className="font-mono text-[13px] text-[#c9d4e0]">
-                    0x003fafB5126a5296c6edC7C23De55daf2E84B503
+                    contracts/deployments/cyprus1.json
                   </span>
-                  {" "}(6 decimals). Your payout wallet and this contract must be in
-                  the same zone — Cyprus-1.
+                  . Your payout wallet and the contract must be in the same zone
+                  — Cyprus-1 (0x00…).
                 </span>
               </Callout>
 
@@ -860,16 +859,16 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
             </ul>
           </section>
 
-          {/* Testing */}
+          {/* Deployment */}
           <section className="mt-16">
             <SectionHeading
               id="testing"
-              kicker="Testnet"
-              title="Testing on testnet"
+              kicker="Mainnet"
+              title="Deployment & local development"
             />
 
             <div className="mt-5">
-              <CodeBlock label="Terminal" code={testnet} />
+              <CodeBlock label="Terminal" code={deployMainnet} />
             </div>
 
             <Callout tone="info" title="Running the platform locally">

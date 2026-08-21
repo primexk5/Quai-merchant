@@ -10,39 +10,22 @@ import {
   type Signer,
 } from "quais";
 import paywithquaiAbi from "./paywithquai.abi.json";
-import { ensureQuaiNetwork, getActiveWallet, chainForWallet } from "./wallets";
+import { ensureQuaiNetwork, getActiveWallet, QUAI_MAINNET_CHAIN } from "./wallets";
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const PAYWITHQUAI_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_ADDRESS!;
-// Stablecoin used on Orchard testnet — the funded deployment (contracts README). The newer
-// deployments/<network>.json copy was deployed but never minted (totalSupply 0), so balance
-// reads would always show 0. Overrides win when set.
-export const MUSDQ_ADDRESS =
-  process.env.NEXT_PUBLIC_MUSDQ_ADDRESS || "0x0068f42D5Bd511363f52a1ade1ecD41B4bdD8F8e";
-// Blip runs on Quai mainnet (chain 9) — the merchant's own mainnet deployments.
-// Empty until the PayWithQuai + stablecoin contracts are deployed to mainnet.
-export const PAYWITHQUAI_MAINNET_ADDRESS = process.env.NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS;
-export const MUSDQ_MAINNET_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_MAINNET_ADDRESS;
+// Settlement stablecoin on Quai mainnet — no testnet fallback exists anymore; the address must
+// be provided explicitly (see frontend/.env.local.example).
+export const MUSDQ_ADDRESS = process.env.NEXT_PUBLIC_MUSDQ_ADDRESS;
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
 
-/** True when the connected wallet is Blip — which operates on Quai mainnet, not the testnet. */
-export function isMainnetWallet(): boolean {
-  return getActiveWallet()?.brand === "blip";
-}
-
-/** PayWithQuai address for the connected wallet's chain (Blip → mainnet, others → testnet). */
+/** PayWithQuai address for payments (Quai mainnet, Cyprus-1). */
 export function resolvePayAddress(): string {
-  if (isMainnetWallet()) {
-    return requireAddress("NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS", PAYWITHQUAI_MAINNET_ADDRESS);
-  }
   return requireAddress("NEXT_PUBLIC_PAYWITHQUAI_ADDRESS", PAYWITHQUAI_ADDRESS);
 }
 
-/** Stablecoin address for the connected wallet's chain (Blip → mainnet, others → testnet). */
+/** Stablecoin address for payments (Quai mainnet, Cyprus-1). */
 export function resolveTokenAddress(): string {
-  if (isMainnetWallet()) {
-    return requireAddress("NEXT_PUBLIC_MUSDQ_MAINNET_ADDRESS", MUSDQ_MAINNET_ADDRESS);
-  }
   return requireAddress("NEXT_PUBLIC_MUSDQ_ADDRESS", MUSDQ_ADDRESS);
 }
 
@@ -64,25 +47,37 @@ function requireAddress(name: string, value: string | undefined): string {
   }
 }
 
-/** One provider reused across polls — avoids re-doing DNS/TLS handshakes on every status check,
- *  which matters a lot on slow or mobile networks. Blip (mainnet) reads go to the mainnet RPC,
- *  everything else to the Orchard testnet RPC. */
-let rpcProvider: JsonRpcProvider | undefined;
-let rpcProviderMainnet: JsonRpcProvider | undefined;
-export function getRpcProvider(): JsonRpcProvider {
-  if (isMainnetWallet()) {
-    if (!rpcProviderMainnet) {
-      const url = process.env.NEXT_PUBLIC_RPC_MAINNET_URL ?? "https://rpc.quai.network/cyprus1";
-      rpcProviderMainnet = new JsonRpcProvider(url, undefined, { usePathing: true });
+/**
+ * Normalize an RPC base URL to a zone-gateway endpoint (Cyprus-1). The app only ever reads the
+ * Cyprus-1 zone (accounts and contracts are all 0x00), so pointing the provider straight at the
+ * `/cyprus1` path is safe. This must NOT be done with `usePathing: true`: `quais` alpha.56 then
+ * probes `quai_listRunningChains` during init and — when that call fails (CSP-blocked origin,
+ * node down, slow gateway) — loops forever inside `_waitGetRunningLocations`, wedging every
+ * provider call indefinitely. That is what made the create-link flow spin forever after the
+ * wallet signed. With `usePathing: false` init makes no network calls at all.
+ */
+function zoneRpcUrl(base: string): string {
+  try {
+    const url = new URL(base);
+    if (url.pathname === "" || url.pathname === "/") {
+      url.pathname = "/cyprus1";
     }
-    return rpcProviderMainnet;
+    return url.toString();
+  } catch {
+    return base.endsWith("/") ? `${base}cyprus1` : `${base}/cyprus1`;
   }
+}
+
+/** One provider reused across polls — avoids re-doing DNS/TLS handshakes on every status check,
+ *  which matters a lot on slow or mobile networks. All reads go to the Quai mainnet RPC. */
+let rpcProvider: JsonRpcProvider | undefined;
+export function getRpcProvider(): JsonRpcProvider {
   if (!rpcProvider) {
     const url = process.env.NEXT_PUBLIC_RPC_URL;
     if (!url) {
       throw new Error("NEXT_PUBLIC_RPC_URL is not set in the frontend environment — add it and redeploy.");
     }
-    rpcProvider = new JsonRpcProvider(url, undefined, { usePathing: true });
+    rpcProvider = new JsonRpcProvider(zoneRpcUrl(url), undefined, { usePathing: false });
   }
   return rpcProvider;
 }
@@ -256,8 +251,7 @@ async function getSigner(): Promise<Signer> {
   return provider.getSigner();
 }
 
-/** Puts the connected wallet on the chain its brand operates on — Blip is a mainnet wallet
- *  (chain 9), Pelagus and the rest target Quai Orchard (15000) — and returns a signer.
+/** Puts the connected wallet on Quai mainnet (chain 9) and returns a signer.
  *  Without this, a wallet on its default chain broadcasts into a mempool the app never sees,
  *  and the registration would hang forever waiting for a receipt. */
 async function getSignerOnNetwork(): Promise<Signer> {
@@ -265,7 +259,7 @@ async function getSignerOnNetwork(): Promise<Signer> {
   if (!wallet) {
     throw new Error("No wallet connected — connect a wallet first.");
   }
-  const chain = chainForWallet(wallet.brand);
+  const chain = QUAI_MAINNET_CHAIN;
   const net = await ensureQuaiNetwork(wallet.provider, chain);
   if (net === "unsupported") {
     throw new Error(
@@ -277,24 +271,34 @@ async function getSignerOnNetwork(): Promise<Signer> {
 }
 
 /**
- * Wait for a transaction receipt via the app's canonical RPC, NOT the wallet's provider.
-/**
- * Wait for a transaction receipt via the app's canonical RPC, NOT the wallet's provider.
- * The wallet's provider can sit on a different node/shard that never sees the receipt — and a
- * tx broadcast to the wrong chain never mines at all — so this is bounded by a timeout and
- * fails with a clear error instead of loading forever.
+ * Wait for a transaction receipt by polling BOTH the app's canonical RPC and the wallet's own
+ * provider. The wallet broadcasts through ITS node, which may be a different gateway than the
+ * app's RPC (Pelagus routes to its configured node) — a tx can live in the wallet's mempool
+ * while the app's public gateway has never heard of it. So the wallet's provider is polled too:
+ * it is the only node guaranteed to have seen the broadcast.
  *
- * Strategy:
- *  We rely strictly on polling `eth_getTransactionReceipt` every 4s.
- *  (We bypass `provider.waitForTransaction` entirely because `quais` alpha.56 has a bug
- *  where parsing blocks with cross-shard txs throws "Invalid shard", which randomly crashes
- *  the built-in block-polling waiter on the active testnet).
+ * (We bypass `provider.waitForTransaction` entirely because `quais` alpha.56 has a bug where
+ * parsing blocks with cross-shard txs throws "Invalid shard", which randomly crashes the
+ * built-in block-polling waiter on any Quai network.)
+ *
+ * Each poll is raced against a hard timeout (`withTimeout`). `quais` alpha.56 has no per-request
+ * timeout and its provider init can wedge forever (see getRpcProvider), so a single stuck RPC
+ * round-trip must never be able to stall this loop past the deadline.
  */
 async function waitForTxReceipt(hash: string, timeoutMs = 180_000): Promise<string> {
   const provider = getRpcProvider();
+  // The wallet's provider — the node the tx was actually broadcast to. Built once, reused.
+  let walletProvider: BrowserProvider | null = null;
+  const wallet = getActiveWallet();
+  if (wallet) {
+    walletProvider = new BrowserProvider(wallet.provider);
+  }
+  const interval = 4_000;
+  // An individual RPC call gets 10s — plenty for a healthy node, short enough that a hung
+  // connection (DNS/TLS/init wedge) advances the loop instead of freezing the UI forever.
+  const pollTimeoutMs = 10_000;
 
   return new Promise<string>((resolve, reject) => {
-    const interval = 4_000;
     const deadline = Date.now() + timeoutMs;
 
     const tick = async () => {
@@ -307,13 +311,20 @@ async function waitForTxReceipt(hash: string, timeoutMs = 180_000): Promise<stri
         );
         return;
       }
-      try {
-        // Use the library's built-in getTransactionReceipt, which handles zone routing correctly
-        // based on the hash prefix. (We still avoid provider.waitForTransaction because that
-        // polls getBlock and crashes on cross-shard txs).
-        const receipt = await provider.getTransactionReceipt(hash);
 
-        if (receipt && receipt.blockNumber != null) {
+      // Query the app RPC and the wallet's node in parallel; a flaky or divergent node must
+      // never gate the other.
+      const [appReceipt, walletReceipt] = await Promise.allSettled([
+        withTimeout(provider.getTransactionReceipt(hash), pollTimeoutMs),
+        walletProvider
+          ? withTimeout(walletProvider.getTransactionReceipt(hash), pollTimeoutMs)
+          : Promise.resolve(null),
+      ]);
+
+      for (const settled of [appReceipt, walletReceipt]) {
+        if (settled.status !== "fulfilled" || !settled.value) continue;
+        const receipt = settled.value;
+        if (receipt.blockNumber != null) {
           if (receipt.status === 0) {
             reject(new Error("Transaction failed/reverted on-chain."));
             return;
@@ -321,14 +332,41 @@ async function waitForTxReceipt(hash: string, timeoutMs = 180_000): Promise<stri
           resolve(receipt.hash ?? hash);
           return;
         }
-      } catch (err) {
-        // RPC hiccup — log and keep polling
-        console.warn("Polling receipt failed (will retry):", err);
+      }
+
+      if (appReceipt.status === "rejected") {
+        // RPC hiccup or poll timeout — log and keep polling until the deadline
+        console.warn("Polling receipt failed (will retry):", appReceipt.reason);
+      }
+      if (walletReceipt.status === "rejected") {
+        // The wallet's bridge can reject lookups while the tx is still pending — keep polling
+        console.warn("Wallet receipt poll failed (will retry):", walletReceipt.reason);
       }
       setTimeout(() => void tick(), interval);
     };
 
     void tick();
+  });
+}
+
+/** Race a possibly-never-settling promise against a timeout so a wedged RPC call (the `quais`
+ *  alpha.56 init bug, a hanging connection, etc.) can't stall the receipt poll forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`RPC call timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
   });
 }
 

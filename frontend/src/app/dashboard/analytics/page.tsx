@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
               Analytics
             </h1>
             <p className="mt-2 text-sm text-[#8b93a7]">
-              Live metrics from the relayer on Orchard testnet.
+              Live metrics from the relayer on Quai mainnet.
             </p>
           </div>
 

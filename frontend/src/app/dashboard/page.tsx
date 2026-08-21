@@ -16,7 +16,7 @@ import { StatCard } from "@/components/ui/stat-card";
 import { WalletBalances } from "@/components/ui/wallet-balances";
 import { formatDeliveryAmount, useRelayerData } from "@/lib/relayer";
 
-const ORCHARD_SCAN = "https://orchard.quaiscan.io/tx/";
+const QUAI_SCAN = "https://quaiscan.io/tx/";
 
 export default function DashboardPage() {
   const { deliveries, merchants, loading, error } = useRelayerData();
@@ -56,7 +56,7 @@ export default function DashboardPage() {
               Merchant overview
             </h1>
             <p className="mt-2 text-sm text-[#8b93a7]">
-              Live from the PayWithQuai relayer on Orchard testnet.
+              Live from the PayWithQuai relayer on Quai mainnet.
             </p>
           </div>
 
@@ -103,8 +103,8 @@ export default function DashboardPage() {
 
           <StatCard
             label="Network"
-            value="Orchard"
-            description="Cyprus-1 · chain 15000"
+            value="Quai Mainnet"
+            description="Cyprus-1 · chain 9"
             icon={ArrowUpRight}
           />
         </div>
@@ -169,7 +169,7 @@ export default function DashboardPage() {
                         </span>
                       </div>
                       <a
-                        href={`${ORCHARD_SCAN}${d.payload.data.txHash}`}
+                        href={`${QUAI_SCAN}${d.payload.data.txHash}`}
                         target="_blank"
                         rel="noreferrer"
                         className="text-[#8b93a7] transition hover:text-[#38bdf8]"

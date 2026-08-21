@@ -10,7 +10,7 @@ import {
   useRelayerData,
 } from "@/lib/relayer";
 
-const ORCHARD_SCAN = "https://orchard.quaiscan.io/tx/";
+const QUAI_SCAN = "https://quaiscan.io/tx/";
 const STATUSES = ["all", "delivered", "pending", "failed"] as const;
 type StatusFilter = (typeof STATUSES)[number];
 
@@ -148,7 +148,7 @@ export default function PaymentsPage() {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <a
-                          href={`${ORCHARD_SCAN}${d.payload.data.txHash}`}
+                          href={`${QUAI_SCAN}${d.payload.data.txHash}`}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-[#38bdf8] hover:text-[#67d8ff]"

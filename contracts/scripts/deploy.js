@@ -101,6 +101,25 @@ async function main() {
         'independent actor that can halt payments.',
     );
   }
+  // Platform fees are real money on mainnet: never silently default FEE_RECIPIENT to the
+  // deployer EOA. The destination must be an explicitly chosen, funded, Cyprus-1 (0x00…)
+  // address that accepts native value — ideally a cold wallet or a Safe, not a hot deploy key.
+  let feeRecipient;
+  if (isMainnet) {
+    const raw = (process.env.FEE_RECIPIENT || '').trim();
+    if (!raw) {
+      throw new Error(
+        'Refusing to deploy to mainnet without FEE_RECIPIENT — platform fees would silently go ' +
+          'to the deployer EOA. Set FEE_RECIPIENT to the treasury address that should collect fees.',
+      );
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+      throw new Error(`FEE_RECIPIENT="${raw}" is not a valid 20-byte hex address.`);
+    }
+    feeRecipient = raw;
+  } else {
+    feeRecipient = process.env.FEE_RECIPIENT || wallet.address;
+  }
   const timelockMinDelay = Number(process.env.TIMELOCK_MIN_DELAY || DEFAULT_TIMELOCK_MIN_DELAY);
   if (isMainnet && timelockMinDelay < 86400) {
     throw new Error(
@@ -120,8 +139,12 @@ async function main() {
   const wallet = new quais.Wallet(accounts[0], provider);
   console.log(`Network:  ${hre.network.name} (chainId ${chainId})`);
   console.log(`Deployer: ${wallet.address}`);
-
-  const feeRecipient = process.env.FEE_RECIPIENT || wallet.address;
+  if (isMainnet && feeRecipient.toLowerCase() === wallet.address.toLowerCase()) {
+    console.warn(
+      '⚠️  FEE_RECIPIENT is the deployer EOA. On mainnet prefer a dedicated treasury / Safe so ' +
+        'fees are not commingled with the hot deployment key.',
+    );
+  }
 
   // 1) MockStablecoin — testnet convenience; never deploy the open-mint faucet to mainnet.
   let mockAddress;
@@ -164,6 +187,26 @@ async function main() {
       console.log(`Accepted asset: ${process.env.STABLECOIN_ADDR} (STABLECOIN_ADDR)`);
     }, 'allowlist STABLECOIN_ADDR');
   }
+
+  // --- Fee routing verification: read the fee config back from the proxy and fail hard if it
+  // does not match what was requested. A wrong immutable-at-init fee destination is not
+  // discoverable until fees have already accrued, so verify NOW, on the chain.
+  const [onChainFeeRecipient, onChainFeeBps] = await Promise.all([
+    pay.feeRecipient(),
+    pay.feeBps(),
+  ]);
+  if (
+    String(onChainFeeRecipient).toLowerCase() !== feeRecipient.toLowerCase() ||
+    Number(onChainFeeBps) !== Number(feeBps)
+  ) {
+    throw new Error(
+      `Fee config mismatch! Requested recipient=${feeRecipient} bps=${feeBps} but the proxy has ` +
+        `recipient=${onChainFeeRecipient} bps=${Number(onChainFeeBps)}. DO NOT USE this deployment.`,
+    );
+  }
+  console.log(`\nFee routing verified on-chain:`);
+  console.log(`  FEE_RECIPIENT → ${onChainFeeRecipient} (all platform fees land here)`);
+  console.log(`  FEE_BPS       → ${Number(onChainFeeBps)} (${Number(onChainFeeBps) / 100}% of every settlement)`);
 
   // 4) Governance: hand upgrade authority to a Timelock owned by the multisig (if configured).
   let timelockAddress = null;

@@ -12,7 +12,7 @@ const ERC20_ABI = [
 ];
 
 function chainLabel(): string {
-  return getActiveWallet()?.brand === "blip" ? "mainnet holdings" : "testnet holdings";
+  return "Quai mainnet holdings";
 }
 
 export function WalletBalances() {

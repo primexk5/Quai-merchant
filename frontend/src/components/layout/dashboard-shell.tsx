@@ -14,7 +14,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Logo } from "@/components/logo";
 import { getStoredAddress, isLoggedIn, logout, checkSession } from "@/lib/auth";
 
@@ -61,6 +61,14 @@ export function DashboardShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  // The address lives in localStorage. useSyncExternalStore keeps the first paint SSR-identical
+  // ("Not signed in" via getServerSnapshot) and only shows the real address after hydration —
+  // reading it directly during render would cause a hydration mismatch.
+  const storedAddress = useSyncExternalStore(
+    () => () => {}, // localStorage isn't reactive — re-read on every render
+    () => getStoredAddress(),
+    () => null,
+  );
 
   // Re-validate the HttpOnly cookie session after a reload (in-memory token is gone).
   // Expired or revoked sessions (backend 401) are signed out and sent to /login.
@@ -154,7 +162,7 @@ export function DashboardShell({
           <div className="mb-4 rounded-xl border border-white/6 bg-white/2 p-3">
             <p className="text-xs text-[#667085]">Signed in as</p>
             <p className="mt-1 truncate font-mono text-xs text-white">
-              {shortAddress(getStoredAddress())}
+              {shortAddress(storedAddress)}
             </p>
           </div>
 

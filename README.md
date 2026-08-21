@@ -41,7 +41,7 @@ Funds never rest in the contract — every payment is routed through and out in 
 cd contracts
 npm install
 npx hardhat test          # unit + upgrade tests
-npm run deploy:testnet    # deploys PayWithQuai proxy on Cyprus-1
+npm run deploy            # deploys PayWithQuai proxy on Cyprus-1 (network from contracts/.env)
 ```
 
 The deployment writes `contracts/deployments/<network>.json` — the relayer keys off the `payWithQuai` proxy address.

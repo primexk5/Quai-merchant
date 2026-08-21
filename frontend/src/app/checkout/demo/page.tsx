@@ -208,7 +208,7 @@ export default function CheckoutDemoPage() {
             </p>
             <p className="mt-1 text-sm text-[#38bdf8]">QUAI</p>
             <p className="mt-2 text-xs text-[#8b93a7]">
-              ≈ $20.00 USD · Quai Orchard testnet
+              ≈ $20.00 USD · Quai mainnet
             </p>
           </div>
 

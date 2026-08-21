@@ -8,3 +8,4 @@ coverage.json
 typechain/
 typechain-types/
 deployments/
+.cold-owner.key

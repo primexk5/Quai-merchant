@@ -16,17 +16,15 @@ import { parseError } from "@/lib/utils";
 import { parseQuai } from "quais";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import {
-  chainForWallet,
   connectWallet,
   detectWallets,
   ensureQuaiNetwork,
   storeWalletId,
+  QUAI_MAINNET_CHAIN,
   type WalletBrand,
 } from "@/lib/wallets";
 import {
-  PAYWITHQUAI_MAINNET_ADDRESS,
   ZERO_ADDRESS,
-  isMainnetWallet,
   newOrderId,
   registerOrderBatch,
   createPaymentLink,
@@ -69,8 +67,8 @@ const WALLET_OPTIONS: {
   {
     brand: "pelagus",
     name: "Pelagus",
-    network: "Orchard testnet (chain 15000)",
-    hint: "Free testnet QUAI — best for testing without spending real funds.",
+    network: "Quai mainnet (chain 9)",
+    hint: "Connect the Pelagus extension to register orders on mainnet.",
   },
 ];
 
@@ -106,7 +104,7 @@ export default function LinksPage() {
     }
   };
 
-  /** Connect a specific wallet brand — Blip stays on mainnet, Pelagus on the testnet. */
+  /** Connect a specific wallet brand — every wallet operates on Quai mainnet. */
   const connectChoice = async (brand: WalletBrand) => {
     setError(null);
     const wallet = detectWallets().find((w) => w.brand === brand);
@@ -123,7 +121,7 @@ export default function LinksPage() {
       return;
     }
     try {
-      const chain = chainForWallet(brand);
+      const chain = QUAI_MAINNET_CHAIN;
       const net = await ensureQuaiNetwork(wallet.provider, chain);
       if (net === "unsupported") {
         setError(
@@ -265,48 +263,19 @@ export default function LinksPage() {
                   </div>
                   <div className="rounded-xl border border-white/7 bg-[#171717] px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          isMainnetWallet()
-                            ? "bg-[#C1ED00]/10 text-[#C1ED00]"
-                            : "bg-[#38bdf8]/10 text-[#38bdf8]"
-                        }`}
-                      >
-                        {isMainnetWallet()
-                          ? "Blip · mainnet (chain 9)"
-                          : "Pelagus · testnet (chain 15000)"}
+                      <span className="inline-flex items-center rounded-full bg-[#C1ED00]/10 px-2 py-0.5 text-[10px] font-semibold text-[#C1ED00]">
+                        Quai mainnet (chain 9)
                       </span>
                     </div>
                     <p className="mt-2 break-all font-mono text-xs text-white">
                       {address}
                     </p>
                     <p className="mt-1 text-xs text-[#8b93a7]">
-                      Payments go to this wallet on{" "}
-                      {isMainnetWallet()
-                        ? "Quai mainnet"
-                        : "the Orchard testnet"}
-                      . A platform fee of 0.3% is deducted at settlement.
+                      Payments go to this wallet on Quai mainnet. A platform fee
+                      of 0.3% is deducted at settlement.
                     </p>
                   </div>
                 </div>
-
-                {isMainnetWallet() && !PAYWITHQUAI_MAINNET_ADDRESS && (
-                  <div className="flex items-start gap-2 rounded-xl border border-amber-400/20 bg-amber-400/6 px-4 py-3">
-                    <AlertCircle
-                      size={14}
-                      className="mt-0.5 shrink-0 text-amber-300"
-                    />
-                    <p className="text-xs text-amber-300">
-                      Blip registers orders on Quai mainnet, but this deployment
-                      has no mainnet payment contract yet. Set{" "}
-                      <code className="font-mono">
-                        NEXT_PUBLIC_PAYWITHQUAI_MAINNET_ADDRESS
-                      </code>{" "}
-                      after deploying to mainnet, or use Pelagus (testnet) to
-                      keep testing for free.
-                    </p>
-                  </div>
-                )}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   {/* Asset */}

@@ -144,7 +144,7 @@ The check is constant-time and rejects timestamps older than 5 minutes (replay p
 ## Local end-to-end
 
 1. Deploy the contracts to a Quai zone and run the on-chain demo (`contracts/`):
-   `npm run deploy:testnet` then `npm run demo:testnet`.
+   `npm run deploy` then `npm run demo` (network comes from `contracts/.env`).
 2. Point this backend at the same zone + proxy address in `.env`, set `START_BLOCK` to the deploy
    block, and `npm run dev`.
 3. Run the sample merchant endpoint and onboard a merchant pointing at it:

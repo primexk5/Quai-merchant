@@ -6,8 +6,8 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy:testnet": "hardhat run scripts/deploy.js --network cyprus1",
-    "demo:testnet": "hardhat run scripts/payDemo.js --network cyprus1"
+    "deploy": "hardhat run scripts/deploy.js --network cyprus1",
+    "demo": "hardhat run scripts/payDemo.js --network cyprus1"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

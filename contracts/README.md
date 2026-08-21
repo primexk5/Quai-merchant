@@ -100,13 +100,17 @@ npx hardhat compile
 npx hardhat test        # full suite on the in-process EVM — no node or funds needed
 ```
 
-## Deploy to Quai testnet
+## Deploy to Quai mainnet
 
 ```bash
-cp .env.example .env       # fill in CYPRUS1_PK (fund it from the Quai faucet); Orchard RPC is preset
-npm run deploy:testnet  # deploys MockStablecoin + impl + proxy (+ Timelock if MULTISIG_ADDR set)
-npm run demo:testnet    # runs the full register → approve → pay → event loop against the proxy
+cp .env.example .env
+# Fill in: RPC_URL=https://rpc.quai.network, CHAIN_ID=9, CYPRUS1_PK (funded hot key),
+# FEE_RECIPIENT (treasury), STABLECOIN_ADDR, MULTISIG_ADDR, PAUSE_GUARDIAN_ADDR.
+npm run deploy   # deploys impl + proxy (+ Timelock; MockStablecoin is skipped on mainnet)
 ```
+
+The script refuses to deploy on mainnet (chain 9) unless `MULTISIG_ADDR`, `PAUSE_GUARDIAN_ADDR`
+and `FEE_RECIPIENT` are all set, and verifies the fee routing on-chain after initialization.
 
 - Solidity **0.8.20**, `evmVersion: london` (Quai EVM supports ≤ 0.8.20). OpenZeppelin is pinned to
   **5.0.2** — the last line whose proxy/UUPS files still allow the `0.8.20` pragma (5.1+ requires
@@ -119,8 +123,8 @@ npm run demo:testnet    # runs the full register → approve → pay → event l
   a real stablecoin (or call `setTokenAccepted` later).
 - Deploys use the **quais** SDK (Hardhat's ethers cannot talk to Quai). The `ContractFactory`
   takes an IPFS metadata CID (via `@quai/hardhat-deploy-metadata`) so Quaiscan can verify source.
-- Networks: Orchard testnet (`CHAIN_ID=15000`, `https://orchard.rpc.quai.network`), mainnet
-  (`CHAIN_ID=9`, `https://rpc.quai.network`).
+- Networks: mainnet (`CHAIN_ID=9`, `https://rpc.quai.network`), Orchard testnet
+  (`CHAIN_ID=15000`, `https://orchard.rpc.quai.network`) if you need it again.
 
 ## Notes & roadmap
 

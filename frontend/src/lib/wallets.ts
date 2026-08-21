@@ -31,30 +31,19 @@ export interface DetectedWallet {
   supportsQuai: boolean;
 }
 
-export const QUAI_ORCHARD_CHAIN = {
-  chainId: "0x3A98", // 15000 — Orchard testnet (Pelagus)
-  chainName: "Quai Network Orchard",
-  nativeCurrency: { name: "Quai", symbol: "QUAI", decimals: 18 },
-  rpcUrls: [process.env.NEXT_PUBLIC_RPC_URL ?? "https://orchard.rpc.quai.network"],
-  blockExplorerUrls: ["https://orchard.quaiscan.io"],
-};
-
 export const QUAI_MAINNET_CHAIN = {
-  chainId: "0x9", // 9 — Quai mainnet, Cyprus-1 zone (Blip)
+  chainId: "0x9", // 9 — Quai mainnet, Cyprus-1 zone
   chainName: "Quai Network (Mainnet)",
   nativeCurrency: { name: "Quai", symbol: "QUAI", decimals: 18 },
   rpcUrls: [
-    process.env.NEXT_PUBLIC_RPC_MAINNET_URL ?? "https://rpc.quai.network/cyprus1",
+    process.env.NEXT_PUBLIC_RPC_URL ?? "https://rpc.quai.network/cyprus1",
   ],
   blockExplorerUrls: ["https://quaiscan.io"],
 };
 
-export type ChainConfig = typeof QUAI_ORCHARD_CHAIN;
+export type ChainConfig = typeof QUAI_MAINNET_CHAIN;
 
-/** Blip lives on Quai mainnet; every other wallet targets the Orchard testnet. */
-export function chainForWallet(brand: WalletBrand | undefined): ChainConfig {
-  return brand === "blip" ? QUAI_MAINNET_CHAIN : QUAI_ORCHARD_CHAIN;
-}
+/** Every wallet operates on Quai mainnet — the app no longer touches any testnet. */
 
 const STORAGE_KEY = "quaimerchant:active-wallet";
 
@@ -229,15 +218,14 @@ export async function getWalletChainId(
 }
 
 /**
- * Puts the wallet on the chain it operates on — Blip is a mainnet wallet,
- * Pelagus and other wallets target the Orchard testnet.
+ * Puts the wallet on Quai mainnet — every wallet brand operates on chain 9.
  * Switches when the chain is already known, otherwise asks the wallet to add it.
  * The outcome is verified by re-reading the wallet's chain id — wallets may resolve
  * the switch promise without actually changing, or reject it with non-standard codes.
  */
 export async function ensureQuaiNetwork(
   provider: Eip1193Provider,
-  target: ChainConfig = chainForWallet(getActiveWallet()?.brand),
+  target: ChainConfig = QUAI_MAINNET_CHAIN,
 ): Promise<"ok" | "unsupported"> {
   const targetId = target.chainId.toLowerCase();
   const current = await getWalletChainId(provider);
