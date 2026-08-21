@@ -203,7 +203,23 @@ export function getActiveWallet(): DetectedWallet | null {
   return detectWallets().find((w) => w.id === stored) ?? null;
 }
 
-/** Asks the wallet for its current chain id (hex). */
+/** Canonical hex chain id (`0x9`, not `0x09` / `9` / number) for reliable compares. */
+export function normalizeChainId(id: unknown): string | null {
+  if (id == null || id === "") return null;
+  if (typeof id === "number" && Number.isFinite(id)) {
+    return `0x${Math.trunc(id).toString(16)}`;
+  }
+  const s = String(id).trim().toLowerCase();
+  if (/^[0-9]+$/.test(s)) return `0x${parseInt(s, 10).toString(16)}`;
+  if (s.startsWith("0x")) {
+    const n = parseInt(s, 16);
+    if (Number.isNaN(n)) return null;
+    return `0x${n.toString(16)}`;
+  }
+  return null;
+}
+
+/** Asks the wallet for its current chain id (normalized hex). */
 export async function getWalletChainId(
   provider: Eip1193Provider,
 ): Promise<string | null> {
@@ -212,7 +228,7 @@ export async function getWalletChainId(
     if (!chainId) {
       chainId = await provider.request({ method: "eth_chainId" }).catch(() => null);
     }
-    return (chainId as string) ?? null;
+    return normalizeChainId(chainId);
   } catch {
     return null;
   }
@@ -223,14 +239,29 @@ export async function getWalletChainId(
  * Switches when the chain is already known, otherwise asks the wallet to add it.
  * The outcome is verified by re-reading the wallet's chain id — wallets may resolve
  * the switch promise without actually changing, or reject it with non-standard codes.
+ *
+ * Quai-native wallets (Pelagus / Blip) often mishandle `wallet_switchEthereumChain` /
+ * `wallet_addEthereumChain`: the extension opens on the Assets tab with no switch UI
+ * and the request never settles — which looks like "signing doesn't work" on payment
+ * links. For those brands we never call EIP-3326; we only verify the chain id (or
+ * proceed when the wallet can't report one).
  */
 export async function ensureQuaiNetwork(
   provider: Eip1193Provider,
   target: ChainConfig = QUAI_MAINNET_CHAIN,
+  opts?: { quaiNative?: boolean },
 ): Promise<"ok" | "unsupported"> {
-  const targetId = target.chainId.toLowerCase();
+  const targetId = normalizeChainId(target.chainId);
+  if (!targetId) return "unsupported";
+
   const current = await getWalletChainId(provider);
-  if (current && current.toLowerCase() === targetId) return "ok";
+  if (current && current === targetId) return "ok";
+
+  if (opts?.quaiNative) {
+    // Can't read chain id — Pelagus/Blip are Quai-only; don't open a phantom switch prompt.
+    if (!current) return "ok";
+    return "unsupported";
+  }
 
   try {
     await provider.request({
@@ -238,7 +269,7 @@ export async function ensureQuaiNetwork(
       params: [{ chainId: target.chainId }],
     });
     const after = await getWalletChainId(provider);
-    if (after && after.toLowerCase() === targetId) return "ok";
+    if (after && after === targetId) return "ok";
   } catch (err) {
     const code = (err as { code?: number })?.code;
     if (code === 4001) throw new Error("Network switch declined.");
@@ -252,7 +283,7 @@ export async function ensureQuaiNetwork(
       params: [target],
     });
     const after = await getWalletChainId(provider);
-    if (after && after.toLowerCase() === targetId) return "ok";
+    if (after && after === targetId) return "ok";
   } catch {
     // fall through — wallet can't reach the target chain
   }

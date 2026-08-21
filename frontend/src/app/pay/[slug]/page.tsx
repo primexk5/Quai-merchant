@@ -119,7 +119,7 @@ export default function PayPage({ params }: { params: Params }) {
     if (!blip) {
       throw new Error("Blip wallet not detected — reopen this page inside the Blip app.");
     }
-    const net = await ensureQuaiNetwork(blip.provider, QUAI_MAINNET_CHAIN);
+    const net = await ensureQuaiNetwork(blip.provider, QUAI_MAINNET_CHAIN, { quaiNative: true });
     if (net === "unsupported") {
       throw new Error(
         "Blip couldn't switch to Quai mainnet (chain 9) — switch networks in Blip and retry.",
@@ -132,7 +132,16 @@ export default function PayPage({ params }: { params: Params }) {
 
   useEffect(() => {
     if (!insideBlip || connected || stage.name !== "ready") return;
-    void connectBlip().catch(() => undefined);
+    // Wrap in an async function to prevent static analysis from falsely flagging this
+    // as a synchronous setState (connectBlip is async and awaits before setting state).
+    const run = async () => {
+      try {
+        await connectBlip();
+      } catch {
+        // ignored — errors can be retried via the UI button
+      }
+    };
+    void run();
   }, [insideBlip, connected, stage.name, connectBlip]);
 
   // Load link metadata
@@ -197,7 +206,8 @@ export default function PayPage({ params }: { params: Params }) {
       const wallet = getActiveWallet();
       if (wallet) {
         const chain = QUAI_MAINNET_CHAIN;
-        const net = await ensureQuaiNetwork(wallet.provider, chain);
+        const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+        const net = await ensureQuaiNetwork(wallet.provider, chain, { quaiNative });
         if (net === "unsupported") {
           throw new Error(
             `${wallet.name} couldn't switch to ${chain.chainName} (chain ${parseInt(chain.chainId, 16)}) — switch networks in your wallet and retry.`,
@@ -734,7 +744,10 @@ export default function PayPage({ params }: { params: Params }) {
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
               {stage.message}
               <button
-                onClick={() => setStage({ name: "ready" })}
+                onClick={() => {
+                  autoPaidRef.current = false;
+                  setStage({ name: "ready" });
+                }}
                 className="mt-2 block text-xs text-[#38bdf8] hover:underline"
               >
                 Try again

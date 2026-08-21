@@ -87,8 +87,22 @@ export function WalletSelector({
     setBusy(wallet.id);
     setError(null);
     try {
-      await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN);
-      const address = await connectWallet(wallet);
+      const quaiNative = wallet.brand === "pelagus" || wallet.brand === "blip";
+      let address: string;
+      if (quaiNative) {
+        address = await connectWallet(wallet);
+        const net = await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN, { quaiNative });
+        if (net === "unsupported") {
+          throw new Error(`Please ensure ${wallet.name} is set to Quai Mainnet (chain 9).`);
+        }
+      } else {
+        const net = await ensureQuaiNetwork(wallet.provider, QUAI_MAINNET_CHAIN);
+        if (net === "unsupported") {
+          throw new Error(`Could not switch ${wallet.name} to Quai Mainnet.`);
+        }
+        address = await connectWallet(wallet);
+      }
+      
       storeWalletId(wallet.id);
       setOpen(false);
       onConnected(address);
