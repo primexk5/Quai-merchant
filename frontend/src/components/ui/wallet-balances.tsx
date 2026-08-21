@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BrowserProvider, Contract, getAddress } from "quais";
-import { getActiveWallet } from "@/lib/wallets";
+import { BrowserProvider, Contract, getAddress, parseQuai, toBeHex } from "quais";
+import { getActiveWallet, QUAI_MAINNET_CHAIN } from "@/lib/wallets";
 import { getRpcProvider, MUSDQ_ADDRESS } from "@/lib/payment";
-import { RefreshCw, Wallet as WalletIcon } from "lucide-react";
+import { requestAppWalletFunding } from "@/lib/blip";
+import { RefreshCw, Wallet as WalletIcon, PlusCircle } from "lucide-react";
 
 // Minimal ERC20 ABI for balance checking
 const ERC20_ABI = [
@@ -31,6 +32,10 @@ export function WalletBalances() {
   const [musdqBalance, setMusdqBalance] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isBlip = getActiveWallet()?.brand === "blip";
+  const [topUpAmount, setTopUpAmount] = useState("10");
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [topUpError, setTopUpError] = useState<string | null>(null);
 
   // loading starts true so the skeleton shows on first render without a setState
   const fetchBalances = async () => {
@@ -94,6 +99,47 @@ export function WalletBalances() {
     void fetchBalances();
   }, []);
 
+  /** Moves funds from the Blip main vault into this site's app wallet via Blip's funding
+   *  sheet — the only way added QUAI becomes usable here, since Blip never exposes the main
+   *  vault address to dApps. */
+  const topUpAppWallet = async () => {
+    const wallet = getActiveWallet();
+    if (!wallet || wallet.brand !== "blip") return;
+    let amountWei: bigint;
+    try {
+      amountWei = parseQuai(topUpAmount || "0");
+    } catch {
+      setTopUpError("Enter a valid QUAI amount.");
+      return;
+    }
+    if (amountWei <= 0n) {
+      setTopUpError("Enter an amount greater than zero.");
+      return;
+    }
+    setTopUpBusy(true);
+    setTopUpError(null);
+    try {
+      await requestAppWalletFunding(wallet.provider, {
+        chainId: QUAI_MAINNET_CHAIN.chainId,
+        reason: "manual top-up",
+        continueLabel: "Add funds",
+        assets: [
+          { type: "native", symbol: "QUAI", decimals: 18, amountWei: toBeHex(amountWei), purpose: "topup" },
+        ],
+      });
+      await fetchBalances();
+    } catch (err) {
+      const code = (err as { code?: number })?.code;
+      setTopUpError(
+        code === 4001
+          ? "Top-up declined in Blip."
+          : String((err as Error)?.message ?? "Top-up failed — try again."),
+      );
+    } finally {
+      setTopUpBusy(false);
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-white/7 bg-[#171717] p-5">
       <div className="mb-4 flex items-center justify-between border-b border-white/7 pb-4">
@@ -121,7 +167,9 @@ export function WalletBalances() {
       ) : (
         <div className={`grid gap-4 ${tokenAddress ? "sm:grid-cols-2" : ""}`}>
           <div className="rounded-xl border border-white/4 bg-[#0a0a0a] p-4">
-            <p className="text-xs text-[#8b93a7]">Native QUAI</p>
+            <p className="text-xs text-[#8b93a7]">
+              {isBlip ? "Native QUAI · app wallet" : "Native QUAI"}
+            </p>
             <p className="mt-1 font-mono text-xl text-white">
               {loading ? "..." : quaiBalance ?? "—"}
             </p>
@@ -134,6 +182,39 @@ export function WalletBalances() {
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {isBlip && (
+        <div className="mt-4 rounded-xl border border-white/7 bg-[#0a0a0a] p-4">
+          <p className="text-xs leading-5 text-[#8b93a7]">
+            You&apos;re connected with Blip, so this card shows your{" "}
+            <span className="text-white">app wallet for this site</span> — a separate wallet
+            from your Blip main vault. Payments and payouts use it. Funds you add to Blip land
+            in the main vault first; move them over here to use them.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <div className="flex flex-1 items-center rounded-lg border border-white/10 bg-white/4 px-3">
+              <input
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value)}
+                inputMode="decimal"
+                placeholder="10"
+                disabled={topUpBusy}
+                className="w-full bg-transparent py-2 text-sm text-white outline-none"
+              />
+              <span className="text-xs text-[#8b93a7]">QUAI</span>
+            </div>
+            <button
+              onClick={() => void topUpAppWallet()}
+              disabled={topUpBusy}
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#38bdf8] px-3 py-2 text-xs font-medium text-[#0b0f19] transition hover:brightness-110 disabled:opacity-50"
+            >
+              <PlusCircle size={14} className={topUpBusy ? "animate-pulse" : ""} />
+              {topUpBusy ? "Opening Blip…" : "Top up"}
+            </button>
+          </div>
+          {topUpError && <p className="mt-2 text-xs text-red-400">{topUpError}</p>}
         </div>
       )}
     </div>
