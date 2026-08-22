@@ -105,8 +105,8 @@ export function DashboardShell({
             <Logo className="h-9 w-9" />
 
             <div>
-              <p className="text-sm font-bold tracking-tight">PAY WITH</p>
-              <p className="-mt-1 text-sm font-bold text-[#38bdf8]">QUAI</p>
+              <p className="text-sm font-bold tracking-tight">TRIPPLEPAY</p>
+              <p className="-mt-1 text-sm font-bold text-[#38bdf8]">MERCHANTS</p>
             </div>
           </Link>
 

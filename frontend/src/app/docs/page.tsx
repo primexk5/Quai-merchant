@@ -254,8 +254,8 @@ export default function DocsPage() {
         <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2.5">
             <Logo />
-            <span className="text-sm font-semibold tracking-tight">
-              QUAI<span className="text-[#38bdf8]">Merchant</span>
+            <span className="text-sm font-semibold tracking-tight text-white">
+              TRIPPLEPAY<span className="text-[#38bdf8]">Merchants</span>
               <span className="ml-2 rounded-md border border-[#38bdf8]/25 bg-[#38bdf8]/8 px-1.5 py-0.5 text-[10px] font-medium text-[#38bdf8]">
                 Docs
               </span>

@@ -900,7 +900,7 @@ function Navbar() {
         <Link href="/" className="flex items-center gap-2.5">
           <Logo />
           <span className="text-sm font-semibold tracking-tight text-white">
-            QUAI <span className="text-sky-400">MERCHANT</span>
+            TRIPPLEPAY <span className="text-sky-400">MERCHANTS</span>
           </span>
         </Link>
 
