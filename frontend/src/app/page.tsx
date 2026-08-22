@@ -260,7 +260,7 @@ export default function Home() {
               </h2>
 
               <p className="mt-4 max-w-lg leading-7 text-slate-500">
-                Quai Merchant integrates natively with <strong className="text-slate-300">Blip</strong> — the premier self-custody mobile wallet for Quai (iOS & Android). Customers scan a QR code or tap a link, and the Blip app opens with the payment pre-filled. One tap to confirm.
+                TripplePay || Marchants integrates natively with <strong className="text-slate-300">Blip</strong> — the premier self-custody mobile wallet for Quai (iOS & Android). Customers scan a QR code or tap a link, and the Blip app opens with the payment pre-filled. One tap to confirm.
               </p>
 
               <ul className="mt-6 space-y-3">
@@ -554,7 +554,7 @@ export default function Home() {
               <span className="text-slate-400">should be.</span>
             </h2>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
-              Quai Merchant rebuilds payments from scratch — on-chain, borderless, and built for every merchant, everywhere.
+              TripplePay || Marchants rebuilds payments from scratch — on-chain, borderless, and built for every merchant, everywhere.
             </p>
           </motion.div>
 
@@ -595,7 +595,7 @@ export default function Home() {
               transition={{ duration: 0.5, delay: 0.1 }}
               className="rounded-2xl border border-sky-400/15 bg-sky-400/3 p-8"
             >
-              <p className="text-xs font-semibold uppercase tracking-widest text-sky-400 mb-6">After — Quai Merchant</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-sky-400 mb-6">After — TripplePay || Marchants</p>
               <div className="space-y-4">
                 {[
                   { label: "Lightning-fast settlement — seconds, not days", highlight: false },
@@ -783,7 +783,7 @@ export default function Home() {
             <p className="text-sm font-medium text-sky-400 mb-4">WHAT&apos;S COMING</p>
             <h2 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
               The future of{" "}
-              <span className="text-slate-400">Quai Merchant.</span>
+              <span className="text-slate-400">TripplePay || Marchants.</span>
             </h2>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
               We&apos;re just getting started. Here&apos;s where we&apos;re taking this — from social commerce to global infrastructure.
@@ -807,7 +807,7 @@ export default function Home() {
               {
                 icon: Smartphone,
                 title: "Mobile SDK",
-                desc: "Native iOS and Android SDKs so developers can embed Quai Merchant checkout into any mobile app with a few lines of code.",
+                desc: "Native iOS and Android SDKs so developers can embed TripplePay || Marchants checkout into any mobile app with a few lines of code.",
                 status: "Planned",
               },
               {
@@ -957,7 +957,7 @@ function Footer() {
           <Logo />
 
           <span className="text-sm font-medium text-slate-400">
-            Quai Merchant
+            TripplePay || Marchants
           </span>
         </div>
 

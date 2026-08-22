@@ -141,7 +141,7 @@ impossible.
 
 ## Mobile payments with Blip
 
-Quai Merchant natively supports **Blip Pay** for mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
+TripplePay || Marchants natively supports **Blip Pay** for mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
 
 Encode your checkout page URL in a QR code, or deep-link mobile users into Blip's in-app browser:
 

@@ -85,7 +85,7 @@ The frontend builds the checkout, wraps order registration/payment in `src/lib/p
 
 ## Blip Pay Integration
 
-Quai Merchant features native integration with **Blip Pay** across the entire merchant and customer lifecycle.
+TripplePay || Marchants features native integration with **Blip Pay** across the entire merchant and customer lifecycle.
 
 **For Customers (Mobile Payments):**
 For physical or mobile-first commerce, the checkout can display a deep-link QR code.

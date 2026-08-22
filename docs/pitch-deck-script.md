@@ -1,4 +1,4 @@
-# QUAIMerchant — Pitch Deck Script (v2)
+# TripplePay || Marchants — Pitch Deck Script (v2)
 
 Creative direction: **"The internet moved. Money didn't. We fixed that."**
 
@@ -13,14 +13,14 @@ Length: ~7 minutes, 13 slides. Cut slides 9 or 11 if you need to go shorter.
 **On-screen headline:** Payments should just work.
 
 **On-screen copy:**
-- QUAIMerchant
+- TripplePay || Marchants
 - The checkout layer for Quai
 - Fast. Low-cost. Verifiable.
 
 **Visual:** The checkout mock — Premium Hoodie, ₦5,000, a big "Pay with Quai" button, and a green checkmark.
 
 **What you say (20s):**
-"Payments should just work. That's the whole company. QUAIMerchant is a checkout layer for the Quai blockchain — it lets any merchant accept crypto payments with a button their customers already know how to use. My name is [Name], and I'm the [role]."
+"Payments should just work. That's the whole company. TripplePay || Marchants is a checkout layer for the Quai blockchain — it lets any merchant accept crypto payments with a button their customers already know how to use. My name is [Name], and I'm the [role]."
 
 ---
 
@@ -82,7 +82,7 @@ Length: ~7 minutes, 13 slides. Cut slides 9 or 11 if you need to go shorter.
 **Visual:** Split screen — code on the left, the checkout widget on the right.
 
 **What you say (30s):**
-"QUAIMerchant is a Paystack-style developer experience with a Quai-powered backend. The developer adds one line of code. The customer sees a checkout button they already trust. The magic — the settlement, the verification — happens underneath, where they never have to look."
+"TripplePay || Marchants is a Paystack-style developer experience with a Quai-powered backend. The developer adds one line of code. The customer sees a checkout button they already trust. The magic — the settlement, the verification — happens underneath, where they never have to look."
 
 ---
 
@@ -110,7 +110,7 @@ Length: ~7 minutes, 13 slides. Cut slides 9 or 11 if you need to go shorter.
 
 **On-screen copy (compact table):**
 
-| | Paystack | Flutterwave | QUAIMerchant |
+| | Paystack | Flutterwave | TripplePay \|\| Marchants |
 |---|---|---|---|
 | Settlement | T+1 | Next day | On-chain, seconds |
 | Pricing | 1.5% + ₦100* | 2%* | Small platform fee — TBD |
@@ -219,4 +219,4 @@ Length: ~7 minutes, 13 slides. Cut slides 9 or 11 if you need to go shorter.
 **Visual:** Same as slide 1 — the bookend. The button is now checked.
 
 **What you say (20s):**
-"We opened with this and we'll close with it: payments should just work. QUAIMerchant makes the blockchain underneath powerful and the checkout on top familiar. Thank you — we'd love to show you the live demo."
+"We opened with this and we'll close with it: payments should just work. TripplePay || Marchants makes the blockchain underneath powerful and the checkout on top familiar. Thank you — we'd love to show you the live demo."

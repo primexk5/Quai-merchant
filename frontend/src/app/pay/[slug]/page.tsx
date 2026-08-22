@@ -321,7 +321,7 @@ export default function PayPage({ params }: { params: Params }) {
               className="inline-flex w-full items-center justify-center gap-2 text-sm text-[#8b93a7] py-2 transition hover:text-white"
             >
               <ArrowLeft size={15} />
-              Return to QuaiMerchant
+              Return to TripplePay || Marchants
             </Link>
           </div>
           {/* Hidden receipt for download */}
@@ -360,7 +360,7 @@ export default function PayPage({ params }: { params: Params }) {
           className="inline-flex items-center gap-2 text-sm text-[#8b93a7] hover:text-white"
         >
           <ArrowLeft size={15} />
-          QuaiMerchant
+          TripplePay || Marchants
         </Link>
 
         <div className="mt-10 rounded-3xl border border-white/7 bg-[#171717] p-6 sm:p-8">
@@ -760,7 +760,7 @@ export default function PayPage({ params }: { params: Params }) {
         </div>
 
         <p className="mt-5 text-center text-xs text-[#4f5868]">
-          Checkout powered by QuaiMerchant — payment goes directly to the
+          Checkout powered by TripplePay || Marchants — payment goes directly to the
           merchant&apos;s wallet.
         </p>
       </div>

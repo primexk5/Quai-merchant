@@ -12,9 +12,9 @@ import { CodeBlock } from "@/components/docs/code-block";
 import { DocsSideNav } from "@/components/docs/side-nav";
 
 export const metadata: Metadata = {
-  title: "Documentation — QuaiMerchant",
+  title: "Documentation — TripplePay || Marchants",
   description:
-    "Accept crypto payments on Quai in 3 steps. Merchant integration guide for QuaiMerchant.",
+    "Accept crypto payments on Quai in 3 steps. Merchant integration guide for TripplePay || Marchants.",
 };
 
 const sections = [
@@ -639,7 +639,7 @@ console.log("Pay here:", paymentLink);`}
             />
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
-              Quai Merchant natively supports <span className="font-medium text-white">Blip Pay</span> for merchant auth (onboarding/login) and mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
+              TripplePay || Marchants natively supports <span className="font-medium text-white">Blip Pay</span> for merchant auth (onboarding/login) and mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
             </p>
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
@@ -920,7 +920,7 @@ const blipLink = \`https://blippay.me/browser?url=\${encodeURIComponent(checkout
             <div className="flex items-center gap-2.5">
               <Logo className="h-6 w-6" />
               <span className="text-sm font-medium text-[#8b93a7]">
-                QuaiMerchant
+                TripplePay || Marchants
               </span>
             </div>
             <div className="flex items-center gap-4 text-xs text-[#4f5868]">
