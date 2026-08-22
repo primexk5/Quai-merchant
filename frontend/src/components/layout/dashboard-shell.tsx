@@ -209,7 +209,7 @@ export function DashboardShell({
 
           <div className="hidden lg:block">
             <p className="text-sm text-[#667085]">Merchant portal</p>
-            <p className="text-sm font-medium text-white">Quai Store</p>
+            <p className="text-sm font-medium text-white">TripplePay || Merchants</p>
           </div>
 
           <div className="ml-auto flex items-center gap-4">

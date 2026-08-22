@@ -554,7 +554,7 @@ export default function Home() {
               <span className="text-slate-400">should be.</span>
             </h2>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-400">
-              TripplePay || Marchants rebuilds payments from scratch — on-chain, borderless, and built for every merchant, everywhere.
+              TripplePay || Merchants rebuilds payments from scratch — on-chain, borderless, and built for every merchant, everywhere.
             </p>
           </motion.div>
 
@@ -900,7 +900,7 @@ function Navbar() {
         <Link href="/" className="flex items-center gap-2.5">
           <Logo />
           <span className="text-sm font-semibold tracking-tight text-white">
-            TRIPPLEPAY <span className="text-sky-400">MERCHANTS</span>
+            TRIPPLEPAY ||<span className="text-sky-400">MERCHANTS</span>
           </span>
         </Link>
 
