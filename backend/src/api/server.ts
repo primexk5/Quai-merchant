@@ -136,7 +136,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     }
     const nonce = randomBytes(24).toString('hex');
     await store.createNonce(nonce, address.toLowerCase(), Date.now() + LOGIN_WINDOW_MS);
-    const message = `quai-merchant-login:${address}:${nonce}:${cfg.CHAIN_ID}:${cfg.LOGIN_REALM}`;
+    const message = `tripplepay-login:${address}:${nonce}:${cfg.CHAIN_ID}:${cfg.LOGIN_REALM}`;
     res.json({ nonce, message, expiresAt: Date.now() + LOGIN_WINDOW_MS });
   }));
 
@@ -157,7 +157,7 @@ export function createServer(store: Store, client: QuaiClient, cfg: Config): Exp
     // The signed message must be the exact challenge for THIS address, freshly issued by this
     // deployment. Everything else about a failed login answers uniformly 401 — no address
     // enumeration, no replay oracle.
-    const match = /^quai-merchant-login:(0x[0-9a-fA-F]{40}):([0-9a-fA-F]{16,}):(\d+):([A-Za-z0-9._-]+)$/.exec(message);
+    const match = /^tripplepay-login:(0x[0-9a-fA-F]{40}):([0-9a-fA-F]{16,}):(\d+):([A-Za-z0-9._-]+)$/.exec(message);
     const signedAddress = match?.[1];
     const nonce = match?.[2];
     const chainId = match?.[3];
@@ -656,6 +656,8 @@ function sessionCookie(name: string, value: string, maxAgeMs: number, secure: bo
   ];
   if (value === '') {
     parts.push('Max-Age=0');
+  } else if (maxAgeMs > 0) {
+    parts.push(`Max-Age=${Math.floor(maxAgeMs / 1000)}`);
   }
   if (secure) parts.push('Secure');
   return parts.join('; ');

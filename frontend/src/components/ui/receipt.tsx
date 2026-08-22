@@ -128,7 +128,7 @@ export const Receipt = forwardRef<HTMLDivElement, ReceiptProps>(
         <div className="mt-10 flex flex-col items-center justify-center gap-3 opacity-60">
           <Logo className="h-6 w-6 grayscale" />
           <span className="text-[10px] font-bold tracking-[0.25em] text-[#8b93a7]">
-            QUAI MERCHANT
+            TRIPPLEPAY || MERCHANTS
           </span>
         </div>
       </div>

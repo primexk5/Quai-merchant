@@ -10,7 +10,7 @@ export function Logo({
   return (
     <Image
       src="/new-logo.png"
-      alt="TripplePay || Marchants logo"
+      alt="TripplePay || Merchants logo"
       width={512}
       height={512}
       priority={priority}

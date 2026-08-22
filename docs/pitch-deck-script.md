@@ -165,7 +165,7 @@ Length: ~7 minutes, 13 slides. Cut slides 9 or 11 if you need to go shorter.
 **On-screen copy (four moats):**
 - **Integration** — SDK + plugins + docs make us part of a merchant's stack
 - **Reliability** — monitoring, retries, reconciliation build trust
-- **Ecosystem** — more Quai merchants → more reason for wallets to support the rail
+- **Ecosystem** — more TripplePay merchants → more reason for wallets to support the rail
 - **Data** — merchant analytics that improve product decisions
 
 **Visual:** The button on the left (small, easy). The network on the right (big, tangled, valuable).

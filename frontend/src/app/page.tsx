@@ -728,7 +728,7 @@ export default function Home() {
                 <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm border border-sky-400/20 bg-sky-400/5 p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <LinkIcon className="h-3 w-3 text-sky-400" />
-                    <p className="text-[10px] font-medium text-sky-400">quaimerchant.com/pay/ord-142</p>
+                    <p className="text-[10px] font-medium text-sky-400">tripplepay.com/pay/ord-142</p>
                   </div>
                   <div className="rounded-lg border border-white/6 bg-[#0a0a0a] p-3">
                     <p className="text-[10px] text-slate-500 mb-1">Payment Request</p>

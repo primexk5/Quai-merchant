@@ -178,7 +178,7 @@ export function orderPaymentError(
   return null;
 }
 
-/** Comma-separated fallback list, e.g. "http://localhost:8080,https://quai-merchant.onrender.com".
+/** Comma-separated fallback list, e.g. "http://localhost:8080,https://tripplepay.onrender.com".
  *  Each request tries the backends in order and uses the first that is reachable. */
 export const BACKEND_URLS = BACKEND_URL.split(",")
   .map((u) => u.trim())

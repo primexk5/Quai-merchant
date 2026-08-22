@@ -46,7 +46,7 @@ const EnvSchema = z.object({
   // Realm bound into the wallet-login challenge message, alongside CHAIN_ID. A signature captured
   // against one deployment can never be replayed against another deployment that uses a different
   // realm or chain id. Keep it stable per deployment.
-  LOGIN_REALM: z.string().min(1).default('quai-merchant'),
+  LOGIN_REALM: z.string().min(1).default('tripplepay'),
   // Comma-separated list of allowed browser origins for the HTTP API, or `*` for any origin.
   // Only relevant in local dev — the dashboard runs on a different port than the backend.
   CORS_ORIGINS: z.string().default('*'),

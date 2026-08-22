@@ -1,7 +1,7 @@
 {
   "name": "pay-with-quai-contracts",
   "version": "0.1.0",
-  "description": "On-chain payment router for the Pay with Quai merchant checkout system (Quai Network).",
+  "description": "On-chain payment router for the TripplePay checkout system (Quai Network).",
   "license": "MIT",
   "scripts": {
     "compile": "hardhat compile",

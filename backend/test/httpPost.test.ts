@@ -79,7 +79,7 @@ describe('postWebhook end-to-end (guarded transport)', () => {
     // Real public hostname through the guarded lookup + TLS — the exact path that failed with
     // "Invalid IP address: undefined" under Node's default autoSelectFamily (Happy Eyeballs).
     const res = await postWebhook({
-      url: 'https://quai-merchant-three.vercel.app/api/nonexistent',
+      url: 'https://tripplepay-three.vercel.app/api/nonexistent',
       headers: { 'content-type': 'application/json' },
       body: '{}',
       timeoutMs: 10_000,

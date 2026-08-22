@@ -1,4 +1,4 @@
-# QUAI Merchant — Pitch Deck (v3)
+# TripplePay || Merchants — Pitch Deck (v3)
 
 Supersedes `pitch-deck-script.md` (v2). Built from the current product: live on the Quai Orchard testnet, native Blip integration, payment links, and social commerce.
 
@@ -13,14 +13,14 @@ Length: ~8 minutes, 12 slides.
 **On-screen headline:** Payments built for the speed of Quai.
 
 **On-screen copy:**
-- QUAI MERCHANT
+- TRIPPLEPAY
 - The checkout layer for the Quai network
 - Non-custodial. No KYC. No waiting.
 
 **Visual:** Checkout mock — "25.00 QUAI", "Pay with Quai" button, green checkmark.
 
 **What you say (20s):**
-"Payments should just work. That's the whole company. QUAI Merchant is a checkout layer for the Quai blockchain — any merchant accepts crypto payments with a button their customers already know how to use. My name is [Name], and I'm the [role]."
+"Payments should just work. That's the whole company. TripplePay is a checkout layer for the Quai blockchain — any merchant accepts crypto payments with a button their customers already know how to use. My name is [Name], and I'm the [role]."
 
 ---
 
@@ -72,7 +72,7 @@ Length: ~8 minutes, 12 slides.
 **Visual:** Split screen — payment link card on the left, checkout UI on the right.
 
 **What you say (30s):**
-"QUAI Merchant is a familiar checkout with a Quai-powered backend. Merchants create a payment link or a QR code in seconds — no website, no developer, no approval process. The blockchain stays invisible. The merchant's system gets a cryptographically signed webhook the moment the payment is verified."
+"TripplePay is a familiar checkout with a Quai-powered backend. Merchants create a payment link or a QR code in seconds — no website, no developer, no approval process. The blockchain stays invisible. The merchant's system gets a cryptographically signed webhook the moment the payment is verified."
 
 ---
 
@@ -124,7 +124,7 @@ Length: ~8 minutes, 12 slides.
 **Visual:** A chat mock — "Here's your payment link" → 25.00 QUAI → "Payment confirmed. Order dispatched."
 
 **What you say (30s):**
-"Millions of sellers on WhatsApp, Instagram, and market stalls can't accept card payments at all. With QUAI Merchant, a seller shares a link in chat, the buyer taps and pays, and the seller sees 'Payment confirmed' instantly — every order tracked, tagged, and never mixed up. No app install for the buyer, no signup wall."
+"Millions of sellers on WhatsApp, Instagram, and market stalls can't accept card payments at all. With TripplePay, a seller shares a link in chat, the buyer taps and pays, and the seller sees 'Payment confirmed' instantly — every order tracked, tagged, and never mixed up. No app install for the buyer, no signup wall."
 
 ---
 
@@ -152,7 +152,7 @@ Length: ~8 minutes, 12 slides.
 
 **On-screen copy (compact table):**
 
-| | Paystack | Flutterwave | QUAI Merchant |
+| | Paystack | Flutterwave | TripplePay |
 |---|---|---|---|
 | Settlement | T+1 | Next day | On-chain, seconds |
 | Pricing | 1.5% + fixed | 2%* | 0.3% |
@@ -212,4 +212,4 @@ Length: ~8 minutes, 12 slides.
 **Visual:** Same as slide 1 — the bookend. The button is now checked.
 
 **What you say (20s):**
-"We opened with this and we'll close with it: payments should just work. QUAI Merchant makes the blockchain underneath powerful and the checkout on top familiar. Thank you — we'd love to show you the live demo on your phone with Blip."
+"We opened with this and we'll close with it: payments should just work. TripplePay makes the blockchain underneath powerful and the checkout on top familiar. Thank you — we'd love to show you the live demo on your phone with Blip."

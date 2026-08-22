@@ -18,7 +18,7 @@ const cfg = {
   ADMIN_API_KEY: ADMIN_KEY,
   CORS_ORIGINS: '*',
   CHAIN_ID: 9,
-  LOGIN_REALM: 'quai-merchant',
+  LOGIN_REALM: 'tripplepay',
   TRUST_PROXY: 0,
   PAYWITHQUAI_ADDRESS: CONTRACT,
 } as unknown as Config;
@@ -241,7 +241,7 @@ describe('POST /v1/auth/login', () => {
 
   it('rejects a challenge bound to a different chain id or realm', async () => {
     const { message, signature, address } = await signLogin(base, wallet);
-    const forged = message.replace(/:9:quai-merchant$/, ':15000:quai-merchant');
+    const forged = message.replace(/:9:tripplepay$/, ':15000:tripplepay');
     const res = await req(base, '/v1/auth/login', {
       method: 'POST',
       headers: jsonHeaders,

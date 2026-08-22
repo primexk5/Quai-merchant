@@ -13,7 +13,7 @@ import {
  *
  * Security model (audit fixes):
  *  - The backend mints a single-use, chain-bound challenge nonce; the signed message
- *    (`quai-merchant-login:<address>:<nonce>:<chainId>:<realm>`) cannot be replayed.
+ *    (`tripplepay-login:<address>:<nonce>:<chainId>:<realm>`) cannot be replayed.
  *  - The session token is held ONLY in memory — never in localStorage — so an XSS or a leaked
  *    script can't walk off with a credential that survives a reload.
  *  - The backend also sets an HttpOnly `qmsession` cookie; `backendFetch` sends it with
@@ -24,7 +24,7 @@ import {
  */
 
 const TOKEN_MEMORY: { token: string | null } = { token: null };
-const ADDRESS_KEY = "quaimerchant.address";
+const ADDRESS_KEY = "tripplepay.address";
 const MARKER_COOKIE = "qm.signedin";
 
 export interface AuthMerchant {

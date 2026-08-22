@@ -537,7 +537,7 @@ export default function LinksPage() {
                               href={blipDeepLink(
                                 typeof window !== "undefined"
                                   ? window.location.href
-                                  : "https://quaimerchant.app",
+                                  : "https://tripplepay.app",
                               )}
                               className="inline-flex w-full items-center justify-center rounded-lg border border-white/7 px-4 py-2.5 text-sm font-medium text-[#c9d4e0] transition hover:bg-white/6"
                             >

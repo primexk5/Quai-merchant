@@ -45,7 +45,7 @@ export type ChainConfig = typeof QUAI_MAINNET_CHAIN;
 
 /** Every wallet operates on Quai mainnet — the app no longer touches any testnet. */
 
-const STORAGE_KEY = "quaimerchant:active-wallet";
+const STORAGE_KEY = "tripplepay:active-wallet";
 
 interface UnknownProvider {
   /** Blip's provider flags (window.quai in its in-app browser). */
