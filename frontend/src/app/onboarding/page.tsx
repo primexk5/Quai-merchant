@@ -141,7 +141,7 @@ export default function OnboardingPage() {
           <Link href="/" className="flex items-center gap-2.5">
             <Logo />
             <span className="text-sm font-semibold tracking-tight">
-              QUAI<span className="text-[#38bdf8]">Merchant</span>
+              TripplePay ||<span className="text-[#38bdf8]">Merchants</span>
             </span>
           </Link>
 
@@ -371,7 +371,7 @@ export default function OnboardingPage() {
                   <input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Quai Store"
+                    placeholder="TripplePay || Merchants"
                     name="qm-merchant-name"
                     autoComplete="off"
                     className="h-11 w-full rounded-xl border border-white/7 bg-[#171717] px-3 text-white outline-none placeholder:text-[#4f5868] focus:border-[#38bdf8]/40"

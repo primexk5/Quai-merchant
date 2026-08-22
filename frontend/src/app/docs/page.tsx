@@ -12,9 +12,9 @@ import { CodeBlock } from "@/components/docs/code-block";
 import { DocsSideNav } from "@/components/docs/side-nav";
 
 export const metadata: Metadata = {
-  title: "Documentation — TripplePay || Marchants",
+  title: "Documentation — TripplePay || Merchants",
   description:
-    "Accept crypto payments on Quai in 3 steps. Merchant integration guide for TripplePay || Marchants.",
+    "Accept crypto payments on Quai in 3 steps. Merchant integration guide for TripplePay || Merchants.",
 };
 
 const sections = [
@@ -255,7 +255,7 @@ export default function DocsPage() {
           <Link href="/" className="flex items-center gap-2.5">
             <Logo />
             <span className="text-sm font-semibold tracking-tight text-white">
-              TRIPPLEPAY<span className="text-[#38bdf8]">Merchants</span>
+              TRIPPLEPAY ||<span className="text-[#38bdf8]">Merchants</span>
               <span className="ml-2 rounded-md border border-[#38bdf8]/25 bg-[#38bdf8]/8 px-1.5 py-0.5 text-[10px] font-medium text-[#38bdf8]">
                 Docs
               </span>
@@ -639,7 +639,7 @@ console.log("Pay here:", paymentLink);`}
             />
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">
-              TripplePay || Marchants natively supports <span className="font-medium text-white">Blip Pay</span> for merchant auth (onboarding/login) and mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
+              TripplePay || Merchants natively supports <span className="font-medium text-white">Blip Pay</span> for merchant auth (onboarding/login) and mobile checkouts. Instead of a standard wallet popup, you can present a QR code or deep link that opens the Blip app (iOS & Android) directly.
             </p>
 
             <p className="mt-5 text-[15px] leading-7 text-[#8b93a7]">

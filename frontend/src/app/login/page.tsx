@@ -89,7 +89,7 @@ export default function LoginPage() {
           <Link href="/" className="flex items-center gap-2.5">
             <Logo />
             <span className="text-sm font-semibold tracking-tight">
-              QUAI<span className="text-[#38bdf8]">Merchant</span>
+              TripplePay ||<span className="text-[#38bdf8]">Merchant</span>
             </span>
           </Link>
           <Link href="/" className="inline-flex items-center gap-2 text-sm text-[#8b93a7] transition hover:text-white">

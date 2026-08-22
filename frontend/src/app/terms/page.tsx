@@ -36,7 +36,7 @@ export default function TermsPage() {
 
           <h2>1. Description of Service</h2>
           <p>
-            TripplePay || Marchants is a decentralized, non-custodial payment gateway interface built on the Quai Network. It allows merchants to generate payment links and directly receive cryptocurrency payments from customers. 
+            TripplePay || Merchants is a decentralized, non-custodial payment gateway interface built on the Quai Network. It allows merchants to generate payment links and directly receive cryptocurrency payments from customers. 
           </p>
           <p>
             The Service operates solely as an interface. We do not host wallets, manage private keys, process transactions centrally, or hold any user funds. All transactions are peer-to-peer and executed directly on the Quai Network blockchain.
