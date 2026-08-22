@@ -1,4 +1,4 @@
-# QuaiMerchant — Non-custodial crypto payments for Quai
+# TripplePay || Marchants — Non-custodial crypto payments for Quai
 
 Accept payments on the Quai network with a plain wallet — no accounts, no KYC, no custody. Customers can pay using any Quai-compatible browser extension (like Pelagus) or via mobile using **Blip**, the premier self-custody wallet for Quai (available on iOS & Android). 
 
